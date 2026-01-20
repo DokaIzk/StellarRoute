@@ -124,8 +124,8 @@ StellarRoute is built with a modular architecture consisting of several key comp
 
 ## 📊 Current Status & Contribution Opportunities
 
-**Phase**: M1 - Phase 1.1 (Environment & Project Setup)  
-**Status**: ✅ **95% Complete** | **Actively seeking contributors**
+**Phase**: M1 - Phase 1.2 (SDEX Indexer Development)  
+**Status**: 🔄 **In Active Development** | **Actively seeking contributors**
 
 ### Why Contribute to StellarRoute?
 
@@ -135,53 +135,74 @@ StellarRoute is built with a modular architecture consisting of several key comp
 - 🏆 **Recognition**: Build your portfolio with verifiable open-source contributions
 - 💡 **Clear tasks**: Well-defined issues suitable for all skill levels
 
-### ✅ Foundation Completed
+### ✅ Recent Progress (Phase 1.2)
+
+**Phase 1.1 Complete:**
 - ✅ Rust workspace structure (5 modular crates)
 - ✅ Docker Compose setup for local development
 - ✅ CI/CD pipeline with GitHub Actions
 - ✅ Comprehensive documentation structure
-- ✅ Database architecture planning
+
+**Phase 1.2 Implementation (In Progress):**
+- ✅ Database schema created (`migrations/0001_init.sql`)
+- ✅ Stellar Horizon API client implemented
+- ✅ Data models for Assets and Offers
+- ✅ Database connection pooling with sqlx
+- ✅ SDEX indexer service with polling loop
+- ✅ Main indexer binary created
+- 🔄 Retry logic (basic error handling done)
+- 🔄 Real-time streaming support (polling implemented, streaming next)
+- 🔄 Orderbook snapshot endpoint (pending verification)
 
 ### 🔥 Active Development Areas (Help Wanted!)
 
 We're currently building M1 (Prototype Indexer & API) and need help with:
 
-1. **SDEX Indexer Development** 🚀
-   - Horizon API integration for orderbook data
-   - Real-time streaming implementation
-   - Database schema optimization
-   - *Skills: Rust, API integration, PostgreSQL*
+1. **SDEX Indexer Enhancement** 🚀
+   - Add retry logic with exponential backoff
+   - Implement real-time streaming (SSE from Horizon)
+   - Verify and implement orderbook snapshot endpoint
+   - Add comprehensive unit tests
+   - *Skills: Rust, API integration, Error handling*
 
-2. **Database Layer** 💾
-   - Migration scripts and schema design
-   - Connection pooling optimization
-   - Query performance tuning
-   - *Skills: PostgreSQL, SQL, Database design*
+2. **Database Optimization** 💾
+   - Query performance tuning and indexes
+   - Add database health monitoring
+   - Implement data archival strategy
+   - Schema optimization based on query patterns
+   - *Skills: PostgreSQL, SQL, Performance tuning*
 
 3. **API Development** 🔌
-   - REST endpoint implementation
+   - Implement REST API server (Axum/Actix)
+   - Create `/api/v1/pairs` endpoint
+   - Add `/api/v1/orderbook/{base}/{quote}` endpoint
+   - Add `/api/v1/quote` endpoint
    - WebSocket support for real-time updates
-   - Request validation and error handling
    - *Skills: Rust (Axum/Actix), REST APIs, WebSocket*
 
 4. **Testing & Documentation** ✅
-   - Unit and integration tests
-   - API documentation
+   - Unit tests for indexer, models, and database layer
+   - Integration tests with test database
+   - API documentation (OpenAPI/Swagger)
    - Code examples and tutorials
    - *Skills: Testing, Technical writing*
 
-5. **Performance Optimization** ⚡
-   - Caching layer implementation
-   - Load testing and profiling
-   - Query optimization
-   - *Skills: Performance tuning, Redis, Benchmarking*
+5. **Infrastructure & Monitoring** ⚡
+   - Add structured logging with tracing crate
+   - Implement health check endpoint
+   - Set up metrics collection
+   - Redis caching layer
+   - Rate limiting middleware
+   - *Skills: Observability, Redis, Performance*
 
 ### 📋 Next Immediate Tasks
-1. Implement Stellar Horizon API client
-2. Design and create database schema migrations
-3. Build orderbook indexing service
-4. Create REST API endpoints for quotes
-5. Set up monitoring and logging
+1. Test indexer with local Postgres database
+2. Add retry logic for transient Horizon API failures
+3. Implement Horizon streaming (SSE) for real-time updates
+4. Research and verify orderbook snapshot endpoint
+5. Create REST API server with core endpoints
+6. Add comprehensive error handling and logging
+7. Write unit and integration tests
 
 **👉 Ready to contribute?** Check our [Issues](../../issues) page for tasks tagged by difficulty level (`good-first-issue`, `help-wanted`, `beginner-friendly`).
 
