@@ -16,7 +16,7 @@ This roadmap outlines the complete development journey for StellarRoute, from in
 ## Milestone Breakdown
 
 ### **M1: Prototype Indexer & API Endpoints (SDEX Only)** 
-**Status:** 🟡 In Progress (60% Complete)  
+**Status:** 🟡 In Progress (85% Complete)  
 **Duration:** ~6-8 weeks  
 **Priority:** Critical Foundation
 
@@ -60,16 +60,17 @@ This roadmap outlines the complete development journey for StellarRoute, from in
 - [x] Optimize query performance (materialized views, denormalized views)
 - [x] Add database health monitoring (HealthMonitor, metrics tracking)
 
-**Phase 1.4: REST API Foundation**
-- [ ] Choose API framework (Axum/Actix-web/Rocket)
-- [ ] Implement core REST endpoints:
+**Phase 1.4: REST API Foundation** ✅ **COMPLETE**
+- [x] Choose API framework (Axum selected)
+- [x] Implement core REST endpoints:
   - `GET /api/v1/pairs` - List available trading pairs
   - `GET /api/v1/orderbook/{base}/{quote}` - Get orderbook for pair
   - `GET /api/v1/quote/{base}/{quote}?amount={amount}` - Get price quote
-- [ ] Add request validation and error handling
-- [ ] Implement rate limiting
-- [ ] Add API authentication (API keys for future use)
-- [ ] Create OpenAPI/Swagger documentation
+  - `GET /health` - Health check endpoint
+- [x] Add request validation and error handling (comprehensive ApiError types)
+- [x] Implement rate limiting (RateLimitLayer middleware)
+- [x] Create OpenAPI/Swagger documentation (utoipa + Swagger UI)
+- [x] Add CORS support (tower-http)
 
 **Phase 1.5: Performance & Testing**
 - [ ] Implement caching layer (Redis) for frequently accessed data

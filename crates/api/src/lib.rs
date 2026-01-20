@@ -2,24 +2,16 @@
 //!
 //! Provides REST API endpoints for price quotes and orderbook data.
 
+pub mod docs;
 pub mod error;
 pub mod handlers;
+pub mod middleware;
+pub mod models;
+pub mod routes;
 pub mod server;
+pub mod state;
 
-/// API service
-pub struct ApiServer {
-    // TODO: Implement API server
-}
-
-impl ApiServer {
-    /// Create a new API server instance
-    pub fn new() -> Self {
-        Self {}
-    }
-}
-
-impl Default for ApiServer {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+pub use docs::ApiDoc;
+pub use error::{ApiError, Result};
+pub use server::{Server, ServerConfig};
+pub use state::AppState;

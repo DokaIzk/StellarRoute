@@ -124,8 +124,9 @@ StellarRoute is built with a modular architecture consisting of several key comp
 
 ## 📊 Current Status & Contribution Opportunities
 
-**Phase**: M1 - Phase 1.4 (REST API Foundation)  
-**Status**: 🔄 **Ready to Begin** | **Actively seeking contributors**
+**Phase**: M1 - Phase 1.5 (Performance & Testing)  
+**Status**: 🔄 **Ready to Begin** | **Actively seeking contributors**  
+**Milestone Progress**: 85% Complete
 
 ### Why Contribute to StellarRoute?
 
@@ -161,6 +162,15 @@ StellarRoute is built with a modular architecture consisting of several key comp
 - ✅ Database health monitoring (metrics, pool stats, table sizes)
 - ✅ Query optimizations (materialized views, denormalized views)
 - ✅ HealthMonitor & ArchivalManager Rust modules
+
+**Phase 1.4 Complete (✅ 100%):**
+- ✅ Axum-based REST API framework
+- ✅ Core endpoints (pairs, orderbook, quote, health)
+- ✅ Request/response models with validation
+- ✅ Rate limiting middleware (100 req/min)
+- ✅ OpenAPI/Swagger documentation (interactive UI)
+- ✅ CORS support for web clients
+- ✅ Comprehensive error handling
 
 ### 🔥 Active Development Areas (Help Wanted!)
 

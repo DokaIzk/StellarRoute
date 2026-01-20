@@ -1,0 +1,47 @@
+//! OpenAPI documentation
+
+use utoipa::OpenApi;
+
+use crate::models::{
+    AssetInfo, ErrorResponse, HealthResponse, OrderbookLevel, OrderbookResponse, PairsResponse,
+    PathStep, QuoteResponse, TradingPair,
+};
+
+/// OpenAPI documentation
+#[derive(OpenApi)]
+#[openapi(
+    paths(
+        crate::routes::health::health_check,
+        crate::routes::pairs::list_pairs,
+        crate::routes::orderbook::get_orderbook,
+        crate::routes::quote::get_quote,
+    ),
+    components(schemas(
+        HealthResponse,
+        PairsResponse,
+        TradingPair,
+        AssetInfo,
+        OrderbookResponse,
+        OrderbookLevel,
+        QuoteResponse,
+        PathStep,
+        ErrorResponse,
+    )),
+    tags(
+        (name = "health", description = "Health check endpoints"),
+        (name = "trading", description = "Trading and market data endpoints"),
+    ),
+    info(
+        title = "StellarRoute API",
+        version = "0.1.0",
+        description = "REST API for DEX aggregation on Stellar Network",
+        contact(
+            name = "StellarRoute",
+            url = "https://github.com/stellarroute/stellarroute"
+        ),
+        license(
+            name = "MIT",
+        ),
+    ),
+)]
+pub struct ApiDoc;

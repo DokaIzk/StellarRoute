@@ -6,6 +6,10 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 
+[[bin]]
+name = "stellarroute-api"
+path = "src/bin/stellarroute-api.rs"
+
 [dependencies]
 # Workspace dependencies
 tokio.workspace = true
@@ -27,6 +31,10 @@ config.workspace = true
 # Internal dependencies
 stellarroute-indexer = { path = "../indexer" }
 stellarroute-routing = { path = "../routing" }
+
+# API documentation
+utoipa = { version = "4", features = ["axum_extras"] }
+utoipa-swagger-ui = { version = "6", features = ["axum"] }
 
 [dev-dependencies]
 tokio-test = "0.4"

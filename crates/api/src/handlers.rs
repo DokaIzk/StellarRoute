@@ -1,10 +1,10 @@
 //! API request handlers
 //!
-// Placeholder for API handlers
-// TODO: Implement handlers for:
-// - GET /api/v1/pairs
-// - GET /api/v1/orderbook/{base}/{quote}
-// - GET /api/v1/quote/{base}/{quote}
+//! This module re-exports all route handlers for convenience.
 
-// Temporary empty type to satisfy the compiler until implementation is added.
-pub struct Handlers;
+pub use crate::routes::{
+    health::health_check,
+    orderbook::get_orderbook,
+    pairs::list_pairs,
+    quote::get_quote,
+};
