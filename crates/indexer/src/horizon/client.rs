@@ -31,12 +31,12 @@ impl HorizonClient {
     ) -> Result<Vec<HorizonOffer>> {
         let limit = limit.unwrap_or(200);
         let mut url = format!("{}/offers?limit={}", self.base_url, limit);
-        
+
         if let Some(c) = cursor {
             url.push_str("&cursor=");
             url.push_str(c);
         }
-        
+
         if let Some(s) = selling {
             url.push_str("&selling=");
             url.push_str(s);
@@ -83,8 +83,9 @@ impl HorizonClient {
                     .ok_or_else(|| IndexerError::StellarApi("missing asset_issuer".to_string()))?
                     .to_string(),
             }),
-            other => Err(IndexerError::StellarApi(format!("unknown asset_type: {other}"))),
+            other => Err(IndexerError::StellarApi(format!(
+                "unknown asset_type: {other}"
+            ))),
         }
     }
 }
-

@@ -45,4 +45,3 @@ pub struct HorizonPage<T> {
     #[serde(rename = "_links")]
     pub links: Option<HorizonLinks>,
 }
-

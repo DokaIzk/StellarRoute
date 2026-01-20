@@ -24,10 +24,9 @@ impl TryFrom<HorizonOffer> for Offer {
     type Error = IndexerError;
 
     fn try_from(horizon_offer: HorizonOffer) -> Result<Self> {
-        let id = horizon_offer
-            .id
-            .parse::<u64>()
-            .map_err(|_| IndexerError::StellarApi(format!("Invalid offer ID: {}", horizon_offer.id)))?;
+        let id = horizon_offer.id.parse::<u64>().map_err(|_| {
+            IndexerError::StellarApi(format!("Invalid offer ID: {}", horizon_offer.id))
+        })?;
 
         // Parse assets using the client's parse_asset method
         // We'll need to pass the client or make parse_asset a standalone function
@@ -93,6 +92,89 @@ fn parse_asset_from_value(v: &serde_json::Value) -> Result<Asset> {
                 .ok_or_else(|| IndexerError::StellarApi("missing asset_issuer".to_string()))?
                 .to_string(),
         }),
-        other => Err(IndexerError::StellarApi(format!("unknown asset_type: {other}"))),
+        other => Err(IndexerError::StellarApi(format!(
+            "unknown asset_type: {other}"
+        ))),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::horizon::{HorizonOffer, HorizonPriceR};
+    use serde_json::json;
+
+    fn create_test_horizon_offer() -> HorizonOffer {
+        HorizonOffer {
+            id: "12345".to_string(),
+            paging_token: Some("token123".to_string()),
+            seller: "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN".to_string(),
+            selling: json!({
+                "asset_type": "native"
+            }),
+            buying: json!({
+                "asset_type": "credit_alphanum4",
+                "asset_code": "USDC",
+                "asset_issuer": "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
+            }),
+            amount: "100.0".to_string(),
+            price: "1.5".to_string(),
+            price_r: Some(HorizonPriceR { n: 3, d: 2 }),
+            last_modified_ledger: 12345,
+        }
+    }
+
+    #[test]
+    fn test_offer_from_horizon_offer() {
+        let horizon_offer = create_test_horizon_offer();
+        let offer = Offer::try_from(horizon_offer).unwrap();
+
+        assert_eq!(offer.id, 12345);
+        assert_eq!(offer.amount, "100.0");
+        assert_eq!(offer.price, "1.5");
+        assert_eq!(offer.price_n, 3);
+        assert_eq!(offer.price_d, 2);
+        assert_eq!(offer.last_modified_ledger, 12345);
+        assert!(matches!(offer.selling, Asset::Native));
+        assert!(matches!(offer.buying, Asset::CreditAlphanum4 { .. }));
+    }
+
+    #[test]
+    fn test_offer_invalid_id() {
+        let mut horizon_offer = create_test_horizon_offer();
+        horizon_offer.id = "invalid".to_string();
+
+        let result = Offer::try_from(horizon_offer);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_parse_asset_native() {
+        let json = json!({"asset_type": "native"});
+        let asset = parse_asset_from_value(&json).unwrap();
+        assert!(matches!(asset, Asset::Native));
+    }
+
+    #[test]
+    fn test_parse_asset_credit_alphanum4() {
+        let json = json!({
+            "asset_type": "credit_alphanum4",
+            "asset_code": "USDC",
+            "asset_issuer": "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
+        });
+        let asset = parse_asset_from_value(&json).unwrap();
+        match asset {
+            Asset::CreditAlphanum4 {
+                asset_code,
+                asset_issuer,
+            } => {
+                assert_eq!(asset_code, "USDC");
+                assert_eq!(
+                    asset_issuer,
+                    "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
+                );
+            }
+            _ => panic!("Expected CreditAlphanum4"),
+        }
     }
 }

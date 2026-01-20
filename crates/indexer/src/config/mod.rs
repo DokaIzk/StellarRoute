@@ -41,4 +41,3 @@ impl IndexerConfig {
 
 // Optional alias if you still want it:
 pub type Config = IndexerConfig;
-

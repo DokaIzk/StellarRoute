@@ -7,10 +7,16 @@ pub enum Asset {
     Native,
 
     #[serde(rename = "credit_alphanum4")]
-    CreditAlphanum4 { asset_code: String, asset_issuer: String },
+    CreditAlphanum4 {
+        asset_code: String,
+        asset_issuer: String,
+    },
 
     #[serde(rename = "credit_alphanum12")]
-    CreditAlphanum12 { asset_code: String, asset_issuer: String },
+    CreditAlphanum12 {
+        asset_code: String,
+        asset_issuer: String,
+    },
 }
 
 impl Asset {
@@ -36,4 +42,3 @@ impl Asset {
         }
     }
 }
-

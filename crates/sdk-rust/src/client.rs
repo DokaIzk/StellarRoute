@@ -8,7 +8,7 @@ pub struct StellarRouteClient {
 }
 
 impl StellarRouteClient {
-    pub fn new(api_url: &str) -> Self {
+    pub fn new(_api_url: &str) -> Self {
         Self {}
     }
 }

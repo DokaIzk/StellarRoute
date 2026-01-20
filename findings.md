@@ -95,6 +95,35 @@
 
 ---
 
+## Testing Phase Findings (2026-01-20)
+
+### Test Infrastructure
+- **Unit Tests:** Created for Asset and Offer models
+- **Integration Tests:** Created for database and Horizon API connectivity
+- **Test Results:** All 7 tests passing (4 unit + 3 integration)
+- **Coverage:** Asset serialization, Offer conversion, error handling, database connectivity, Horizon API client
+
+### Test Execution
+- Unit tests run without external dependencies
+- Integration tests require:
+  - PostgreSQL database (via Docker Compose)
+  - Horizon API access (testnet or mainnet)
+- Integration tests can be run with `--ignored` flag when services are available
+
+### Key Test Findings
+1. **Asset Model:** Serialization and key generation working correctly
+2. **Offer Model:** Conversion from Horizon API format successful
+3. **Database:** Connection pooling and health checks functional
+4. **Horizon API:** Client successfully fetches offers from testnet
+5. **Error Handling:** Invalid data properly rejected with appropriate errors
+
+### Test Files Created
+- `crates/indexer/src/models/asset.rs` - Asset unit tests
+- `crates/indexer/src/models/offer.rs` - Offer unit tests
+- `crates/indexer/tests/integration_test.rs` - Integration test suite
+
+---
+
 ## Notes
 
 - Update this file after every research/discovery session

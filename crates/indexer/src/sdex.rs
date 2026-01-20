@@ -23,7 +23,7 @@ impl SdexIndexer {
     /// Start indexing offers from Horizon
     pub async fn start_indexing(&self) -> Result<()> {
         info!("Starting SDEX offer indexing");
-        
+
         loop {
             match self.index_offers().await {
                 Ok(count) => {
