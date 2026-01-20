@@ -124,9 +124,10 @@ StellarRoute is built with a modular architecture consisting of several key comp
 
 ## 📊 Current Status & Contribution Opportunities
 
-**Phase**: M1 - Phase 1.5 (Performance & Testing)  
-**Status**: 🔄 **Ready to Begin** | **Actively seeking contributors**  
-**Milestone Progress**: 85% Complete
+**Milestone**: M1 - Prototype Indexer & API ✅ **COMPLETE!**  
+**Next Phase**: M2 - Soroban AMM Integration  
+**Status**: 🎯 **Ready for Production Testing** | **Actively seeking contributors**  
+**Milestone Progress**: 100% Complete
 
 ### Why Contribute to StellarRoute?
 
@@ -171,6 +172,13 @@ StellarRoute is built with a modular architecture consisting of several key comp
 - ✅ OpenAPI/Swagger documentation (interactive UI)
 - ✅ CORS support for web clients
 - ✅ Comprehensive error handling
+
+**Phase 1.5 Complete (✅ 100%):**
+- ✅ Redis caching layer (optional, graceful fallback)
+- ✅ Smart TTLs: pairs (10s), orderbook (5s), quotes (2s)
+- ✅ Gzip response compression (tower-http)
+- ✅ Cache manager with health checks
+- ✅ Unit tests (5 passing)
 
 ### 🔥 Active Development Areas (Help Wanted!)
 

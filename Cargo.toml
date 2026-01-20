@@ -50,6 +50,9 @@ uuid = { version = "1.6", features = ["v4", "serde"] }
 # Configuration
 config = "0.13"
 
+# Caching
+redis = { version = "0.24", features = ["tokio-comp", "connection-manager"] }
+
 # Clippy and formatting
 [workspace.lints.clippy]
 type_complexity = "allow"

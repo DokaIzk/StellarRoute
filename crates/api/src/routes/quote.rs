@@ -5,10 +5,11 @@ use axum::{
     Json,
 };
 use sqlx::Row;
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 use tracing::debug;
 
 use crate::{
+    cache,
     error::{ApiError, Result},
     models::{
         request::{AssetPath, QuoteParams},
@@ -67,6 +68,19 @@ pub async fn get_quote(
         ));
     }
 
+    // Try to get from cache first
+    let amount_str = format!("{:.7}", amount);
+    if let Some(cache) = &state.cache {
+        if let Ok(mut cache) = cache.try_lock() {
+            if let Some(cached) =
+                cache.get::<QuoteResponse>(&cache::keys::quote(&base, &quote, &amount_str)).await
+            {
+                debug!("Returning cached quote for {}/{}", base, quote);
+                return Ok(Json(cached));
+            }
+        }
+    }
+
     // For now, implement simple direct path (SDEX only)
     // TODO: Implement multi-hop routing in Phase 2
     let (price, path) = find_best_price(&state, &base_asset, &quote_asset, amount).await?;
@@ -79,7 +93,7 @@ pub async fn get_quote(
         crate::models::request::QuoteType::Buy => "buy",
     };
 
-    Ok(Json(QuoteResponse {
+    let response = QuoteResponse {
         base_asset: asset_path_to_info(&base_asset),
         quote_asset: asset_path_to_info(&quote_asset),
         amount: format!("{:.7}", amount),
@@ -88,7 +102,18 @@ pub async fn get_quote(
         quote_type: quote_type.to_string(),
         path,
         timestamp,
-    }))
+    };
+
+    // Cache the response (TTL: 2 seconds for quote data)
+    if let Some(cache) = &state.cache {
+        if let Ok(mut cache) = cache.try_lock() {
+            let _ = cache
+                .set(&cache::keys::quote(&base, &quote, &amount_str), &response, Duration::from_secs(2))
+                .await;
+        }
+    }
+
+    Ok(Json(response))
 }
 
 /// Find best price for a trading pair

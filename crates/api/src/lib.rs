@@ -2,6 +2,7 @@
 //!
 //! Provides REST API endpoints for price quotes and orderbook data.
 
+pub mod cache;
 pub mod docs;
 pub mod error;
 pub mod handlers;
@@ -11,6 +12,7 @@ pub mod routes;
 pub mod server;
 pub mod state;
 
+pub use cache::CacheManager;
 pub use docs::ApiDoc;
 pub use error::{ApiError, Result};
 pub use server::{Server, ServerConfig};

@@ -5,10 +5,11 @@ use axum::{
     Json,
 };
 use sqlx::Row;
-use std::{collections::BTreeMap, sync::Arc};
+use std::{collections::BTreeMap, sync::Arc, time::Duration};
 use tracing::{debug, warn};
 
 use crate::{
+    cache,
     error::{ApiError, Result},
     models::{request::AssetPath, AssetInfo, OrderbookLevel, OrderbookResponse},
     state::AppState,
@@ -37,6 +38,18 @@ pub async fn get_orderbook(
     Path((base, quote)): Path<(String, String)>,
 ) -> Result<Json<OrderbookResponse>> {
     debug!("Fetching orderbook for {}/{}", base, quote);
+
+    // Try to get from cache first
+    if let Some(cache) = &state.cache {
+        if let Ok(mut cache) = cache.try_lock() {
+            if let Some(cached) =
+                cache.get::<OrderbookResponse>(&cache::keys::orderbook(&base, &quote)).await
+            {
+                debug!("Returning cached orderbook for {}/{}", base, quote);
+                return Ok(Json(cached));
+            }
+        }
+    }
 
     // Parse asset identifiers
     let base_asset = AssetPath::parse(&base)
@@ -67,13 +80,24 @@ pub async fn get_orderbook(
         bids.len()
     );
 
-    Ok(Json(OrderbookResponse {
+    let response = OrderbookResponse {
         base_asset: base_info,
         quote_asset: quote_info,
         asks,
         bids,
         timestamp,
-    }))
+    };
+
+    // Cache the response (TTL: 5 seconds for orderbook data)
+    if let Some(cache) = &state.cache {
+        if let Ok(mut cache) = cache.try_lock() {
+            let _ = cache
+                .set(&cache::keys::orderbook(&base, &quote), &response, Duration::from_secs(5))
+                .await;
+        }
+    }
+
+    Ok(Json(response))
 }
 
 /// Find asset ID in database

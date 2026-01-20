@@ -41,10 +41,12 @@ async fn main() {
             .and_then(|p| p.parse().ok())
             .unwrap_or(3000),
         enable_cors: true,
+        enable_compression: true,
+        redis_url: std::env::var("REDIS_URL").ok(),
     };
 
     // Create and start server
-    let server = Server::new(config, pool);
+    let server = Server::new(config, pool).await;
 
     if let Err(e) = server.start().await {
         error!("Server error: {}", e);

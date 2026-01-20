@@ -3,12 +3,22 @@
 use axum::Router;
 use sqlx::PgPool;
 use std::{net::SocketAddr, sync::Arc};
-use tower_http::cors::{Any, CorsLayer};
-use tracing::info;
+use tower_http::{
+    compression::CompressionLayer,
+    cors::{Any, CorsLayer},
+};
+use tracing::{info, warn};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
-use crate::{docs::ApiDoc, error::Result, middleware::RateLimitLayer, routes, state::AppState};
+use crate::{
+    cache::CacheManager,
+    docs::ApiDoc,
+    error::Result,
+    middleware::RateLimitLayer,
+    routes,
+    state::AppState,
+};
 
 /// API server configuration
 #[derive(Debug, Clone)]
@@ -19,6 +29,10 @@ pub struct ServerConfig {
     pub port: u16,
     /// Enable CORS
     pub enable_cors: bool,
+    /// Enable response compression
+    pub enable_compression: bool,
+    /// Redis URL (optional)
+    pub redis_url: Option<String>,
 }
 
 impl Default for ServerConfig {
@@ -27,6 +41,8 @@ impl Default for ServerConfig {
             host: "127.0.0.1".to_string(),
             port: 3000,
             enable_cors: true,
+            enable_compression: true,
+            redis_url: None,
         }
     }
 }
@@ -39,8 +55,24 @@ pub struct Server {
 
 impl Server {
     /// Create a new API server
-    pub fn new(config: ServerConfig, db: PgPool) -> Self {
-        let state = Arc::new(AppState::new(db));
+    pub async fn new(config: ServerConfig, db: PgPool) -> Self {
+        // Try to connect to Redis if URL is provided
+        let state = if let Some(redis_url) = &config.redis_url {
+            match CacheManager::new(redis_url).await {
+                Ok(cache) => {
+                    info!("✅ Redis cache connected");
+                    Arc::new(AppState::with_cache(db, cache))
+                }
+                Err(e) => {
+                    warn!("⚠️  Redis connection failed, running without cache: {}", e);
+                    Arc::new(AppState::new(db))
+                }
+            }
+        } else {
+            info!("ℹ️  Running without Redis cache");
+            Arc::new(AppState::new(db))
+        };
+
         let app = Self::build_app(state, &config);
 
         Self { config, app }
@@ -54,6 +86,12 @@ impl Server {
         let swagger =
             SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi());
         app = app.merge(swagger);
+
+        // Add compression if enabled (gzip for responses > 1KB)
+        if config.enable_compression {
+            app = app.layer(CompressionLayer::new());
+            info!("✅ Response compression enabled");
+        }
 
         // Add CORS if enabled
         if config.enable_cors {

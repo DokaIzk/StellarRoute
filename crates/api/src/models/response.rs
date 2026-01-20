@@ -1,10 +1,10 @@
 //! API response models
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 /// Health check response
-#[derive(Debug, Serialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct HealthResponse {
     pub status: String,
     pub version: String,
@@ -12,7 +12,7 @@ pub struct HealthResponse {
 }
 
 /// Trading pair information
-#[derive(Debug, Serialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct TradingPair {
     pub base_asset: AssetInfo,
     pub quote_asset: AssetInfo,
@@ -21,7 +21,7 @@ pub struct TradingPair {
 }
 
 /// Asset information
-#[derive(Debug, Serialize, Clone, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, Clone, ToSchema)]
 pub struct AssetInfo {
     pub asset_type: String,
     pub asset_code: Option<String>,
@@ -62,14 +62,14 @@ impl AssetInfo {
 }
 
 /// List of trading pairs
-#[derive(Debug, Serialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct PairsResponse {
     pub pairs: Vec<TradingPair>,
     pub total: usize,
 }
 
 /// Orderbook response
-#[derive(Debug, Serialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct OrderbookResponse {
     pub base_asset: AssetInfo,
     pub quote_asset: AssetInfo,
@@ -79,7 +79,7 @@ pub struct OrderbookResponse {
 }
 
 /// Orderbook price level
-#[derive(Debug, Serialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct OrderbookLevel {
     pub price: String,
     pub amount: String,
@@ -87,7 +87,7 @@ pub struct OrderbookLevel {
 }
 
 /// Price quote response
-#[derive(Debug, Serialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct QuoteResponse {
     pub base_asset: AssetInfo,
     pub quote_asset: AssetInfo,
@@ -100,7 +100,7 @@ pub struct QuoteResponse {
 }
 
 /// Step in a trading path
-#[derive(Debug, Serialize, ToSchema)]
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
 pub struct PathStep {
     pub from_asset: AssetInfo,
     pub to_asset: AssetInfo,

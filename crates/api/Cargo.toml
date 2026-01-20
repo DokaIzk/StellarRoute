@@ -27,6 +27,7 @@ sqlx.workspace = true
 chrono.workspace = true
 uuid.workspace = true
 config.workspace = true
+redis.workspace = true
 
 # Internal dependencies
 stellarroute-indexer = { path = "../indexer" }

@@ -2,10 +2,11 @@
 
 use axum::{extract::State, Json};
 use sqlx::Row;
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 use tracing::debug;
 
 use crate::{
+    cache,
     error::{ApiError, Result},
     models::{AssetInfo, PairsResponse, TradingPair},
     state::AppState,
@@ -25,6 +26,16 @@ use crate::{
 )]
 pub async fn list_pairs(State(state): State<Arc<AppState>>) -> Result<Json<PairsResponse>> {
     debug!("Fetching trading pairs");
+
+    // Try to get from cache first
+    if let Some(cache) = &state.cache {
+        if let Ok(mut cache) = cache.try_lock() {
+            if let Some(cached) = cache.get::<PairsResponse>(&cache::keys::pairs_list()).await {
+                debug!("Returning cached pairs");
+                return Ok(Json(cached));
+            }
+        }
+    }
 
     // Query distinct trading pairs from the database
     let rows = sqlx::query(
@@ -91,8 +102,19 @@ pub async fn list_pairs(State(state): State<Arc<AppState>>) -> Result<Json<Pairs
 
     debug!("Found {} trading pairs", pairs.len());
 
-    Ok(Json(PairsResponse {
+    let response = PairsResponse {
         total: pairs.len(),
         pairs,
-    }))
+    };
+
+    // Cache the response (TTL: 10 seconds)
+    if let Some(cache) = &state.cache {
+        if let Ok(mut cache) = cache.try_lock() {
+            let _ = cache
+                .set(&cache::keys::pairs_list(), &response, Duration::from_secs(10))
+                .await;
+        }
+    }
+
+    Ok(Json(response))
 }
