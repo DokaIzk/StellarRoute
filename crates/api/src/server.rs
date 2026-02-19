@@ -6,6 +6,7 @@ use std::{net::SocketAddr, sync::Arc};
 use tower_http::{
     compression::CompressionLayer,
     cors::{Any, CorsLayer},
+    trace::TraceLayer,
 };
 use tracing::{info, warn};
 use utoipa::OpenApi;
@@ -106,6 +107,9 @@ impl Server {
         let rate_limit = RateLimitLayer::default();
         app = app.layer(rate_limit);
 
+        // Add request logging (method, URI, status code, latency)
+        app = app.layer(TraceLayer::new_for_http());
+
         app
     }
 
@@ -129,7 +133,12 @@ impl Server {
         Ok(())
     }
 
-    /// Get router for testing
+    /// Consume the server and return the router (useful for integration testing)
+    pub fn into_router(self) -> Router {
+        self.app
+    }
+
+    /// Get router for testing (crate-internal)
     #[cfg(test)]
     pub fn router(self) -> Router {
         self.app
