@@ -15,6 +15,11 @@ async fn test_database_connection() {
         }),
         poll_interval_secs: 5,
         horizon_limit: 200,
+        max_connections: 5,
+        min_connections: 1,
+        connection_timeout_secs: 30,
+        idle_timeout_secs: 600,
+        max_lifetime_secs: 1800,
     };
 
     let db = Database::new(&config)
