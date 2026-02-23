@@ -5,7 +5,7 @@ use crate::storage::{
     transfer_asset, StorageKey,
 };
 use crate::types::{QuoteResult, Route, SwapParams, SwapResult};
-use soroban_sdk::{contract, contractimpl, symbol_short, vec, Address, Env, IntoVal};
+use soroban_sdk::{contract, contractimpl, symbol_short, vec, Address, Env, IntoVal, Symbol};
 
 #[contract]
 pub struct StellarRoute;
@@ -90,7 +90,7 @@ impl StellarRoute {
         Ok(())
     }
 
-    // UPDATED: Now calls "get_quote" on the adapter
+    /// Public entry point for users to get quotes
     pub fn get_quote(e: Env, amount_in: i128, route: Route) -> Result<QuoteResult, ContractError> {
         if amount_in <= 0 || route.hops.is_empty() || route.hops.len() > 4 {
             return Err(ContractError::InvalidRoute);
@@ -105,10 +105,10 @@ impl StellarRoute {
                 return Err(ContractError::PoolNotSupported);
             }
 
-            // Standards fix: Calling 'get_quote' instead of 'swap_out'
+            // FIX: Calling "adapter_quote" to avoid symbol collision with this function
             let call_result = e.try_invoke_contract::<i128, soroban_sdk::Error>(
                 &hop.pool,
-                &symbol_short!("get_quote"),
+                &Symbol::new(&e, "adapter_quote"),
                 vec![
                     &e,
                     hop.source.into_val(&e),
@@ -121,7 +121,7 @@ impl StellarRoute {
                 Ok(Ok(val)) => val,
                 _ => return Err(ContractError::PoolCallFailed),
             };
-            total_impact_bps += 5; // Simplified impact
+            total_impact_bps += 5;
         }
 
         let fee_rate = get_fee_rate(&e);
@@ -137,7 +137,6 @@ impl StellarRoute {
         })
     }
 
-    // UPDATED: Now calls "swap" on the adapter
     pub fn execute_swap(
         e: Env,
         sender: Address,
@@ -156,7 +155,7 @@ impl StellarRoute {
 
         let mut current_input_amount = params.amount_in;
 
-        // 1. Initial Transfer to the first Pool Adapter
+        // 1. Initial Transfer: User -> First Adapter
         let first_hop = params.route.hops.get(0).unwrap();
         transfer_asset(
             &e,
@@ -174,8 +173,6 @@ impl StellarRoute {
                 return Err(ContractError::PoolNotSupported);
             }
 
-            // Standards fix: Calling 'swap' instead of 'swap_out'
-            // Added min_out parameter (0 for intermediate hops)
             let call_result = e.try_invoke_contract::<i128, soroban_sdk::Error>(
                 &hop.pool,
                 &symbol_short!("swap"),
@@ -184,7 +181,7 @@ impl StellarRoute {
                     hop.source.into_val(&e),
                     hop.destination.into_val(&e),
                     current_input_amount.into_val(&e),
-                    0_i128.into_val(&e),
+                    0_i128.into_val(&e), // min_out for intermediate steps
                 ],
             );
 
@@ -203,9 +200,10 @@ impl StellarRoute {
             return Err(ContractError::SlippageExceeded);
         }
 
-        // 4. Send output to recipient and fee to treasury
-        // Note: The tokens are now held by the Router after the last adapter finishes
+        // 4. Distribute final funds
         let last_hop = params.route.hops.get(params.route.hops.len() - 1).unwrap();
+
+        // Final Output -> User
         transfer_asset(
             &e,
             &last_hop.destination,
@@ -213,6 +211,8 @@ impl StellarRoute {
             &params.recipient,
             final_output,
         );
+
+        // Fees -> Treasury
         transfer_asset(
             &e,
             &last_hop.destination,
@@ -221,8 +221,18 @@ impl StellarRoute {
             fee_amount,
         );
 
+        // 5. State & Events
         increment_nonce(&e, sender.clone());
-        events::swap_executed(&e, sender, params.amount_in, final_output, fee_amount);
+
+        // Issue #42: Updated to pass rich data to events
+        events::swap_executed(
+            &e,
+            sender,
+            params.amount_in,
+            final_output,
+            fee_amount,
+            params.route.clone(),
+        );
 
         Ok(SwapResult {
             amount_in: params.amount_in,
