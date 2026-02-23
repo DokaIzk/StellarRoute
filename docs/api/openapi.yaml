@@ -1,0 +1,588 @@
+openapi: 3.0.3
+
+info:
+  title: StellarRoute API
+  version: 0.1.0
+  description: |
+    REST API for DEX aggregation on the Stellar Network.
+
+    StellarRoute aggregates liquidity from Stellar's SDEX (Stellar Distributed
+    Exchange) and Soroban AMM pools to find the best available price for any
+    token pair.
+
+    ## Asset identifiers
+
+    Assets are encoded in path segments using one of three formats:
+
+    | Format | Example | Meaning |
+    |--------|---------|---------|
+    | `native` | `native` | XLM (Stellar's native asset) |
+    | `CODE` | `USDC` | Issued asset — code only (omits issuer) |
+    | `CODE:ISSUER` | `USDC:GA5ZSEJ...` | Issued asset — fully qualified |
+
+    ## Error handling
+
+    All errors return a JSON body with `error` (machine-readable code) and
+    `message` (human-readable description).  See the `ErrorResponse` schema
+    and the **Error codes** section below for the full list.
+
+    ## Rate limiting
+
+    Endpoints are rate-limited per IP address.  When the limit is exceeded the
+    API returns **429 Too Many Requests** with `X-RateLimit-*` headers.
+  contact:
+    name: StellarRoute
+    url: https://github.com/stellarroute/stellarroute
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:3000
+    description: Local development server
+  - url: https://api.stellarroute.io
+    description: Production server (future)
+
+tags:
+  - name: health
+    description: Service health and readiness probes
+  - name: trading
+    description: Market data — trading pairs, orderbooks, and price quotes
+
+paths:
+  /health:
+    get:
+      operationId: health_check
+      summary: Service health check
+      description: |
+        Probes PostgreSQL and Redis (when configured) and returns a per-component
+        status map.
+
+        Returns **200 OK** when all required dependencies are healthy.
+        Returns **503 Service Unavailable** when any required dependency is down.
+      tags:
+        - health
+      responses:
+        "200":
+          description: All dependencies healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+              example:
+                status: healthy
+                timestamp: "2026-02-23T12:00:00Z"
+                version: "0.1.0"
+                components:
+                  database: healthy
+                  redis: healthy
+        "503":
+          description: One or more dependencies unhealthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+              example:
+                status: unhealthy
+                timestamp: "2026-02-23T12:00:00Z"
+                version: "0.1.0"
+                components:
+                  database: unhealthy
+                  redis: healthy
+
+  /api/v1/pairs:
+    get:
+      operationId: list_pairs
+      summary: List trading pairs
+      description: |
+        Returns all trading pairs that currently have active offers in the
+        SDEX orderbook, ordered by liquidity depth (most offers first).
+
+        Results are cached for **30 seconds**.  Up to **100** pairs are
+        returned per request.
+      tags:
+        - trading
+      responses:
+        "200":
+          description: List of active trading pairs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PairsResponse"
+              example:
+                pairs:
+                  - base: XLM
+                    counter: USDC
+                    base_asset: native
+                    counter_asset: "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
+                    offer_count: 42
+                    last_updated: "2026-02-23T11:59:00Z"
+                  - base: USDC
+                    counter: BTC
+                    base_asset: "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
+                    counter_asset: "BTC:GAUTUYY2THLF7SGITDFMXJVYH3LHDSMGEAKSBU267M2K7A3W543CKUEF"
+                    offer_count: 17
+                    last_updated: "2026-02-23T11:58:30Z"
+                total: 2
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: internal_error
+                message: Failed to fetch trading pairs
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /api/v1/orderbook/{base}/{quote}:
+    get:
+      operationId: get_orderbook
+      summary: Get orderbook
+      description: |
+        Returns bids and asks for the given base/quote asset pair.
+
+        **Bids** are orders to buy the base asset with the quote asset
+        (sorted highest price first).  **Asks** are orders to sell the base
+        asset for the quote asset (sorted lowest price first).
+
+        Results are cached for **10 seconds**.
+      tags:
+        - trading
+      parameters:
+        - $ref: "#/components/parameters/BaseAsset"
+        - $ref: "#/components/parameters/QuoteAsset"
+      responses:
+        "200":
+          description: Orderbook data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrderbookResponse"
+              example:
+                base_asset:
+                  asset_type: native
+                  asset_code: null
+                  asset_issuer: null
+                quote_asset:
+                  asset_type: credit_alphanum4
+                  asset_code: USDC
+                  asset_issuer: GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN
+                bids:
+                  - price: "0.1050000"
+                    amount: "500.0000000"
+                    total: "52.5000000"
+                asks:
+                  - price: "0.1060000"
+                    amount: "300.0000000"
+                    total: "31.8000000"
+                timestamp: 1740312000
+        "400":
+          description: Invalid asset identifier
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: invalid_asset
+                message: "Invalid base asset: unknown asset format"
+        "404":
+          description: Asset pair not found in the orderbook
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: not_found
+                message: Asset not found in orderbook
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /api/v1/quote/{base}/{quote}:
+    get:
+      operationId: get_quote
+      summary: Get price quote
+      description: |
+        Returns the best available price and routing path for trading `amount`
+        of the base asset for the quote asset (or vice-versa when
+        `quote_type=buy`).
+
+        The router evaluates both SDEX offers and Soroban AMM pools to find
+        the optimal execution path.
+
+        Results are cached for **5 seconds**.
+      tags:
+        - trading
+      parameters:
+        - $ref: "#/components/parameters/BaseAsset"
+        - $ref: "#/components/parameters/QuoteAsset"
+        - name: amount
+          in: query
+          description: Amount of the base asset to trade (default `1`)
+          required: false
+          schema:
+            type: string
+            example: "100"
+        - name: quote_type
+          in: query
+          description: |
+            Direction of the quote:
+            - `sell` — how much quote asset you receive when **selling** `amount` of the base asset
+            - `buy`  — how much base asset you must spend to **buy** `amount` of the quote asset
+          required: false
+          schema:
+            type: string
+            enum: [sell, buy]
+            default: sell
+      responses:
+        "200":
+          description: Best available price quote
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/QuoteResponse"
+              example:
+                base_asset:
+                  asset_type: native
+                  asset_code: null
+                  asset_issuer: null
+                quote_asset:
+                  asset_type: credit_alphanum4
+                  asset_code: USDC
+                  asset_issuer: GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN
+                amount: "100.0000000"
+                price: "0.1055000"
+                total: "10.5500000"
+                quote_type: sell
+                path:
+                  - from_asset:
+                      asset_type: native
+                      asset_code: null
+                      asset_issuer: null
+                    to_asset:
+                      asset_type: credit_alphanum4
+                      asset_code: USDC
+                      asset_issuer: GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN
+                    price: "0.1055000"
+                    source: sdex
+                timestamp: 1740312000
+        "400":
+          description: Invalid parameters (bad asset format or non-positive amount)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: validation_error
+                message: Amount must be greater than zero
+        "404":
+          description: No trading route found for this pair
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: not_found
+                message: No route found for this trading pair
+        "500":
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+components:
+  parameters:
+    BaseAsset:
+      name: base
+      in: path
+      required: true
+      description: |
+        Base asset identifier. One of:
+        - `native` — XLM
+        - `CODE` — issued asset code only (e.g. `USDC`)
+        - `CODE:ISSUER` — fully-qualified issued asset (e.g. `USDC:GA5Z...`)
+      schema:
+        type: string
+        example: native
+    QuoteAsset:
+      name: quote
+      in: path
+      required: true
+      description: |
+        Quote asset identifier. One of:
+        - `native` — XLM
+        - `CODE` — issued asset code only (e.g. `USDC`)
+        - `CODE:ISSUER` — fully-qualified issued asset (e.g. `USDC:GA5Z...`)
+      schema:
+        type: string
+        example: USDC
+
+  responses:
+    RateLimited:
+      description: Rate limit exceeded
+      headers:
+        X-RateLimit-Limit:
+          description: Maximum number of requests allowed in the current window
+          schema:
+            type: integer
+        X-RateLimit-Remaining:
+          description: Number of requests remaining in the current window
+          schema:
+            type: integer
+        X-RateLimit-Reset:
+          description: Unix timestamp when the rate limit window resets
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error: rate_limit_exceeded
+            message: Too many requests — please slow down
+
+  schemas:
+    HealthResponse:
+      type: object
+      required: [status, timestamp, version, components]
+      description: Service health check result
+      properties:
+        status:
+          type: string
+          description: Overall health status
+          enum: [healthy, unhealthy]
+          example: healthy
+        timestamp:
+          type: string
+          format: date-time
+          description: ISO-8601 UTC timestamp of the health check
+          example: "2026-02-23T12:00:00Z"
+        version:
+          type: string
+          description: Deployed crate version
+          example: "0.1.0"
+        components:
+          type: object
+          description: Per-dependency health status
+          additionalProperties:
+            type: string
+          example:
+            database: healthy
+            redis: not_configured
+
+    AssetInfo:
+      type: object
+      required: [asset_type]
+      description: Stellar asset descriptor
+      properties:
+        asset_type:
+          type: string
+          description: Stellar asset type
+          enum: [native, credit_alphanum4, credit_alphanum12]
+          example: credit_alphanum4
+        asset_code:
+          type: string
+          nullable: true
+          description: Asset code (null for native XLM)
+          example: USDC
+        asset_issuer:
+          type: string
+          nullable: true
+          description: G-address of the issuing account (null for native XLM)
+          example: GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN
+
+    TradingPair:
+      type: object
+      required: [base, counter, base_asset, counter_asset, offer_count]
+      description: A tradeable asset pair with active orderbook depth
+      properties:
+        base:
+          type: string
+          description: Human-readable base asset code
+          example: XLM
+        counter:
+          type: string
+          description: Human-readable counter asset code
+          example: USDC
+        base_asset:
+          type: string
+          description: Canonical base asset identifier (`native` or `CODE:ISSUER`)
+          example: native
+        counter_asset:
+          type: string
+          description: Canonical counter asset identifier (`native` or `CODE:ISSUER`)
+          example: "USDC:GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
+        offer_count:
+          type: integer
+          format: int64
+          description: Number of active offers for this pair
+          example: 42
+        last_updated:
+          type: string
+          format: date-time
+          nullable: true
+          description: RFC-3339 timestamp of the most recent offer update
+          example: "2026-02-23T11:59:00Z"
+
+    PairsResponse:
+      type: object
+      required: [pairs, total]
+      description: List of active trading pairs
+      properties:
+        pairs:
+          type: array
+          items:
+            $ref: "#/components/schemas/TradingPair"
+        total:
+          type: integer
+          description: Total number of pairs returned
+          example: 2
+
+    OrderbookLevel:
+      type: object
+      required: [price, amount, total]
+      description: A single price level in the orderbook
+      properties:
+        price:
+          type: string
+          description: Price as a decimal string (7 decimal places)
+          example: "0.1050000"
+        amount:
+          type: string
+          description: Available amount at this price level
+          example: "500.0000000"
+        total:
+          type: string
+          description: Total value at this price level (`price × amount`)
+          example: "52.5000000"
+
+    OrderbookResponse:
+      type: object
+      required: [base_asset, quote_asset, bids, asks, timestamp]
+      description: Full orderbook snapshot for a trading pair
+      properties:
+        base_asset:
+          $ref: "#/components/schemas/AssetInfo"
+        quote_asset:
+          $ref: "#/components/schemas/AssetInfo"
+        bids:
+          type: array
+          description: Buy orders sorted highest price first
+          items:
+            $ref: "#/components/schemas/OrderbookLevel"
+        asks:
+          type: array
+          description: Sell orders sorted lowest price first
+          items:
+            $ref: "#/components/schemas/OrderbookLevel"
+        timestamp:
+          type: integer
+          format: int64
+          description: Unix timestamp of the snapshot
+          example: 1740312000
+
+    PathStep:
+      type: object
+      required: [from_asset, to_asset, price, source]
+      description: A single hop in the optimal execution path
+      properties:
+        from_asset:
+          $ref: "#/components/schemas/AssetInfo"
+        to_asset:
+          $ref: "#/components/schemas/AssetInfo"
+        price:
+          type: string
+          description: Exchange rate for this hop
+          example: "0.1055000"
+        source:
+          type: string
+          description: |
+            Liquidity source for this hop:
+            - `sdex` — Stellar Distributed Exchange
+            - `amm:<pool_address>` — Soroban AMM pool
+          example: sdex
+
+    QuoteResponse:
+      type: object
+      required: [base_asset, quote_asset, amount, price, total, quote_type, path, timestamp]
+      description: Best available price quote with full routing path
+      properties:
+        base_asset:
+          $ref: "#/components/schemas/AssetInfo"
+        quote_asset:
+          $ref: "#/components/schemas/AssetInfo"
+        amount:
+          type: string
+          description: Input amount that was quoted
+          example: "100.0000000"
+        price:
+          type: string
+          description: Effective price (quote asset per base asset unit)
+          example: "0.1055000"
+        total:
+          type: string
+          description: Total output amount (`amount × price`)
+          example: "10.5500000"
+        quote_type:
+          type: string
+          description: Direction of the quote
+          enum: [sell, buy]
+          example: sell
+        path:
+          type: array
+          description: Ordered list of hops in the optimal execution path
+          items:
+            $ref: "#/components/schemas/PathStep"
+        timestamp:
+          type: integer
+          format: int64
+          description: Unix timestamp when the quote was generated
+          example: 1740312000
+
+    ErrorResponse:
+      type: object
+      required: [error, message]
+      description: |
+        Standard error envelope.
+
+        ## Error codes
+
+        | `error` | HTTP status | Meaning |
+        |---------|-------------|---------|
+        | `invalid_asset` | 400 | Asset identifier could not be parsed |
+        | `validation_error` | 400 | Request parameter failed validation |
+        | `not_found` | 404 | Requested resource does not exist |
+        | `rate_limit_exceeded` | 429 | Too many requests from this IP |
+        | `internal_error` | 500 | Unexpected server-side failure |
+      properties:
+        error:
+          type: string
+          description: Machine-readable error code
+          example: not_found
+        message:
+          type: string
+          description: Human-readable error description
+          example: Asset not found in orderbook
+        details:
+          description: Optional structured context (present on validation errors)
+          nullable: true
+
+  # Authentication is planned for a future release.
+  # securitySchemes:
+  #   bearerAuth:
+  #     type: http
+  #     scheme: bearer
+  #     bearerFormat: JWT
+  #     description: |
+  #       API key authentication (Phase 2).
+  #       Pass a JWT obtained from the /auth/token endpoint.

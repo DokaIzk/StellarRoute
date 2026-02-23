@@ -104,7 +104,7 @@ fn setup_env() -> Env {
 }
 
 /// Deploy and initialise the router. Returns (admin, fee_to, client).
-fn deploy_router(env: &Env) -> (Address, Address, StellarRouteClient) {
+fn deploy_router(env: &Env) -> (Address, Address, StellarRouteClient<'_>) {
     let admin = Address::generate(env);
     let fee_to = Address::generate(env);
     let id = env.register_contract(None, StellarRoute);
@@ -161,7 +161,7 @@ fn swap_params_for(
 
 fn simple_swap(
     env: &Env,
-    client: &StellarRouteClient,
+    client: &StellarRouteClient<'_>,
     pool: &Address,
 ) -> crate::types::SwapResult {
     let sender = Address::generate(env);
@@ -182,8 +182,7 @@ fn test_initialize_success() {
 fn test_initialize_double_returns_error() {
     let env = setup_env();
     let (_, _, client) = deploy_router(&env);
-    let result =
-        client.try_initialize(&Address::generate(&env), &30_u32, &Address::generate(&env));
+    let result = client.try_initialize(&Address::generate(&env), &30_u32, &Address::generate(&env));
     assert_eq!(result, Err(Ok(ContractError::AlreadyInitialized)));
 }
 
@@ -193,7 +192,11 @@ fn test_initialize_max_valid_fee() {
     let id = env.register_contract(None, StellarRoute);
     let client = StellarRouteClient::new(&env, &id);
     // 1000 bps (10 %) is the maximum allowed value
-    client.initialize(&Address::generate(&env), &1000_u32, &Address::generate(&env));
+    client.initialize(
+        &Address::generate(&env),
+        &1000_u32,
+        &Address::generate(&env),
+    );
 }
 
 #[test]
@@ -201,8 +204,11 @@ fn test_initialize_invalid_fee() {
     let env = setup_env();
     let id = env.register_contract(None, StellarRoute);
     let client = StellarRouteClient::new(&env, &id);
-    let result =
-        client.try_initialize(&Address::generate(&env), &1001_u32, &Address::generate(&env));
+    let result = client.try_initialize(
+        &Address::generate(&env),
+        &1001_u32,
+        &Address::generate(&env),
+    );
     assert_eq!(result, Err(Ok(ContractError::InvalidAmount)));
 }
 
@@ -281,7 +287,13 @@ fn test_pause_blocks_swaps() {
 
     let result = client.try_execute_swap(
         &Address::generate(&env),
-        &swap_params_for(&env, make_route(&env, &pool, 1), 1000, 0, current_seq(&env) + 100),
+        &swap_params_for(
+            &env,
+            make_route(&env, &pool, 1),
+            1000,
+            0,
+            current_seq(&env) + 100,
+        ),
     );
     assert_eq!(result, Err(Ok(ContractError::Paused)));
 }
@@ -305,7 +317,13 @@ fn test_unpause_resumes_swaps() {
 
     let result = client.try_execute_swap(
         &Address::generate(&env),
-        &swap_params_for(&env, make_route(&env, &pool, 1), 1000, 0, current_seq(&env) + 100),
+        &swap_params_for(
+            &env,
+            make_route(&env, &pool, 1),
+            1000,
+            0,
+            current_seq(&env) + 100,
+        ),
     );
     assert!(result.is_ok());
 }
@@ -321,7 +339,13 @@ fn test_pause_unpause_toggle() {
     assert_eq!(
         client.try_execute_swap(
             &Address::generate(&env),
-            &swap_params_for(&env, make_route(&env, &pool, 1), 1000, 0, current_seq(&env) + 100),
+            &swap_params_for(
+                &env,
+                make_route(&env, &pool, 1),
+                1000,
+                0,
+                current_seq(&env) + 100
+            ),
         ),
         Err(Ok(ContractError::Paused))
     );
@@ -330,7 +354,13 @@ fn test_pause_unpause_toggle() {
     assert!(client
         .try_execute_swap(
             &Address::generate(&env),
-            &swap_params_for(&env, make_route(&env, &pool, 1), 1000, 0, current_seq(&env) + 100),
+            &swap_params_for(
+                &env,
+                make_route(&env, &pool, 1),
+                1000,
+                0,
+                current_seq(&env) + 100
+            ),
         )
         .is_ok());
 }
@@ -482,7 +512,13 @@ fn test_swap_two_hops() {
     client.register_pool(&pool);
     let result = client.execute_swap(
         &Address::generate(&env),
-        &swap_params_for(&env, make_route(&env, &pool, 2), 1000, 0, current_seq(&env) + 100),
+        &swap_params_for(
+            &env,
+            make_route(&env, &pool, 2),
+            1000,
+            0,
+            current_seq(&env) + 100,
+        ),
     );
     assert!(result.amount_out > 0);
 }
@@ -495,7 +531,13 @@ fn test_swap_three_hops() {
     client.register_pool(&pool);
     let result = client.execute_swap(
         &Address::generate(&env),
-        &swap_params_for(&env, make_route(&env, &pool, 3), 10_000, 0, current_seq(&env) + 100),
+        &swap_params_for(
+            &env,
+            make_route(&env, &pool, 3),
+            10_000,
+            0,
+            current_seq(&env) + 100,
+        ),
     );
     assert!(result.amount_out > 0);
 }
@@ -508,7 +550,13 @@ fn test_swap_max_hops() {
     client.register_pool(&pool);
     let result = client.execute_swap(
         &Address::generate(&env),
-        &swap_params_for(&env, make_route(&env, &pool, 4), 10_000, 0, current_seq(&env) + 100),
+        &swap_params_for(
+            &env,
+            make_route(&env, &pool, 4),
+            10_000,
+            0,
+            current_seq(&env) + 100,
+        ),
     );
     assert!(result.amount_out > 0);
 }
@@ -522,7 +570,13 @@ fn test_swap_too_many_hops_fails() {
     assert_eq!(
         client.try_execute_swap(
             &Address::generate(&env),
-            &swap_params_for(&env, make_route(&env, &pool, 5), 1000, 0, current_seq(&env) + 100),
+            &swap_params_for(
+                &env,
+                make_route(&env, &pool, 5),
+                1000,
+                0,
+                current_seq(&env) + 100
+            ),
         ),
         Err(Ok(ContractError::InvalidRoute))
     );
@@ -540,7 +594,13 @@ fn test_swap_slippage_exceeded() {
     assert_eq!(
         client.try_execute_swap(
             &Address::generate(&env),
-            &swap_params_for(&env, make_route(&env, &pool, 1), 1000, 999, current_seq(&env) + 100),
+            &swap_params_for(
+                &env,
+                make_route(&env, &pool, 1),
+                1000,
+                999,
+                current_seq(&env) + 100
+            ),
         ),
         Err(Ok(ContractError::SlippageExceeded))
     );
@@ -555,7 +615,13 @@ fn test_swap_slippage_exact_minimum_succeeds() {
     // min_amount_out == expected output (988)
     let result = client.execute_swap(
         &Address::generate(&env),
-        &swap_params_for(&env, make_route(&env, &pool, 1), 1000, 988, current_seq(&env) + 100),
+        &swap_params_for(
+            &env,
+            make_route(&env, &pool, 1),
+            1000,
+            988,
+            current_seq(&env) + 100,
+        ),
     );
     assert_eq!(result.amount_out, 988);
 }
@@ -612,7 +678,13 @@ fn test_swap_zero_amount_produces_zero_output() {
     client.register_pool(&pool);
     let result = client.execute_swap(
         &Address::generate(&env),
-        &swap_params_for(&env, make_route(&env, &pool, 1), 0, 0, current_seq(&env) + 100),
+        &swap_params_for(
+            &env,
+            make_route(&env, &pool, 1),
+            0,
+            0,
+            current_seq(&env) + 100,
+        ),
     );
     assert_eq!(result.amount_out, 0);
 }
@@ -644,7 +716,13 @@ fn test_swap_unregistered_pool_fails() {
     assert_eq!(
         client.try_execute_swap(
             &Address::generate(&env),
-            &swap_params_for(&env, make_route(&env, &pool, 1), 1000, 0, current_seq(&env) + 100),
+            &swap_params_for(
+                &env,
+                make_route(&env, &pool, 1),
+                1000,
+                0,
+                current_seq(&env) + 100
+            ),
         ),
         Err(Ok(ContractError::PoolNotSupported))
     );
@@ -659,7 +737,13 @@ fn test_swap_pool_call_failure() {
     assert_eq!(
         client.try_execute_swap(
             &Address::generate(&env),
-            &swap_params_for(&env, make_route(&env, &pool, 1), 1000, 0, current_seq(&env) + 100),
+            &swap_params_for(
+                &env,
+                make_route(&env, &pool, 1),
+                1000,
+                0,
+                current_seq(&env) + 100
+            ),
         ),
         Err(Ok(ContractError::PoolCallFailed))
     );
@@ -675,7 +759,13 @@ fn test_swap_while_paused_fails() {
     assert_eq!(
         client.try_execute_swap(
             &Address::generate(&env),
-            &swap_params_for(&env, make_route(&env, &pool, 1), 1000, 0, current_seq(&env) + 100),
+            &swap_params_for(
+                &env,
+                make_route(&env, &pool, 1),
+                1000,
+                0,
+                current_seq(&env) + 100
+            ),
         ),
         Err(Ok(ContractError::Paused))
     );
@@ -693,7 +783,13 @@ fn property_output_is_always_less_than_input() {
     for amount in [100_i128, 1_000, 10_000, 100_000, 1_000_000] {
         let result = client.execute_swap(
             &Address::generate(&env),
-            &swap_params_for(&env, make_route(&env, &pool, 1), amount, 0, current_seq(&env) + 100),
+            &swap_params_for(
+                &env,
+                make_route(&env, &pool, 1),
+                amount,
+                0,
+                current_seq(&env) + 100,
+            ),
         );
         assert!(
             result.amount_out < amount,
@@ -741,11 +837,23 @@ fn property_more_hops_means_less_output() {
 
     let sw1 = client.execute_swap(
         &Address::generate(&env),
-        &swap_params_for(&env, make_route(&env, &pool, 1), amount, 0, current_seq(&env) + 100),
+        &swap_params_for(
+            &env,
+            make_route(&env, &pool, 1),
+            amount,
+            0,
+            current_seq(&env) + 100,
+        ),
     );
     let sw4 = client.execute_swap(
         &Address::generate(&env),
-        &swap_params_for(&env, make_route(&env, &pool, 4), amount, 0, current_seq(&env) + 100),
+        &swap_params_for(
+            &env,
+            make_route(&env, &pool, 4),
+            amount,
+            0,
+            current_seq(&env) + 100,
+        ),
     );
     assert!(
         sw4.amount_out < sw1.amount_out,
@@ -770,7 +878,11 @@ fn property_all_contract_errors_are_reachable() {
     {
         let c = StellarRouteClient::new(&env, &env.register_contract(None, StellarRoute));
         assert_eq!(
-            c.try_initialize(&Address::generate(&env), &1001_u32, &Address::generate(&env)),
+            c.try_initialize(
+                &Address::generate(&env),
+                &1001_u32,
+                &Address::generate(&env)
+            ),
             Err(Ok(ContractError::InvalidAmount))
         );
     }
@@ -795,7 +907,13 @@ fn property_all_contract_errors_are_reachable() {
         assert_eq!(
             c.try_execute_swap(
                 &Address::generate(&env),
-                &swap_params_for(&env, make_route(&env, &pool, 1), 1000, 0, current_seq(&env) + 100),
+                &swap_params_for(
+                    &env,
+                    make_route(&env, &pool, 1),
+                    1000,
+                    0,
+                    current_seq(&env) + 100
+                ),
             ),
             Err(Ok(ContractError::Paused))
         );
@@ -809,7 +927,13 @@ fn property_all_contract_errors_are_reachable() {
         assert_eq!(
             c.try_execute_swap(
                 &Address::generate(&env),
-                &swap_params_for(&env, make_route(&env, &pool, 5), 1000, 0, current_seq(&env) + 100),
+                &swap_params_for(
+                    &env,
+                    make_route(&env, &pool, 5),
+                    1000,
+                    0,
+                    current_seq(&env) + 100
+                ),
             ),
             Err(Ok(ContractError::InvalidRoute))
         );
@@ -839,7 +963,13 @@ fn property_all_contract_errors_are_reachable() {
         assert_eq!(
             c.try_execute_swap(
                 &Address::generate(&env),
-                &swap_params_for(&env, make_route(&env, &pool, 1), 1000, 0, current_seq(&env) + 100),
+                &swap_params_for(
+                    &env,
+                    make_route(&env, &pool, 1),
+                    1000,
+                    0,
+                    current_seq(&env) + 100
+                ),
             ),
             Err(Ok(ContractError::PoolCallFailed))
         );
@@ -853,7 +983,13 @@ fn property_all_contract_errors_are_reachable() {
         assert_eq!(
             c.try_execute_swap(
                 &Address::generate(&env),
-                &swap_params_for(&env, make_route(&env, &pool, 1), 1000, 999, current_seq(&env) + 100),
+                &swap_params_for(
+                    &env,
+                    make_route(&env, &pool, 1),
+                    1000,
+                    999,
+                    current_seq(&env) + 100
+                ),
             ),
             Err(Ok(ContractError::SlippageExceeded))
         );
@@ -882,7 +1018,13 @@ fn test_full_lifecycle() {
     // 4. Execute a swap — output should match the quote
     let result = client.execute_swap(
         &Address::generate(&env),
-        &swap_params_for(&env, make_route(&env, &pool, 1), 1000, 0, current_seq(&env) + 100),
+        &swap_params_for(
+            &env,
+            make_route(&env, &pool, 1),
+            1000,
+            0,
+            current_seq(&env) + 100,
+        ),
     );
     assert_eq!(result.amount_out, quote.expected_output);
 }
@@ -935,4 +1077,3 @@ fn test_pause_unpause_emit_events() {
     client.unpause();
     assert!(env.events().all().len() > before);
 }
-
