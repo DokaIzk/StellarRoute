@@ -1,7 +1,10 @@
 use crate::errors::ContractError;
 use crate::events;
-use crate::storage::{self, extend_instance_ttl, get_fee_rate, is_supported_pool, StorageKey};
-use crate::types::{QuoteResult, Route};
+use crate::storage::{
+    self, extend_instance_ttl, get_fee_rate, get_fee_to, increment_nonce, is_supported_pool,
+    transfer_asset, StorageKey,
+};
+use crate::types::{QuoteResult, Route, SwapParams, SwapResult}; // Added missing imports
 use soroban_sdk::{contract, contractimpl, symbol_short, vec, Address, Env, IntoVal};
 
 #[contract]
@@ -9,7 +12,6 @@ pub struct StellarRoute;
 
 #[contractimpl]
 impl StellarRoute {
-    /// Issue #38: Initialize the contract with admin and fee settings
     pub fn initialize(
         e: Env,
         admin: Address,
@@ -33,7 +35,6 @@ impl StellarRoute {
         Ok(())
     }
 
-    /// Issue #38: Transfer admin rights
     pub fn set_admin(e: Env, new_admin: Address) -> Result<(), ContractError> {
         let admin = storage::get_admin(&e);
         admin.require_auth();
@@ -44,7 +45,6 @@ impl StellarRoute {
         Ok(())
     }
 
-    /// Issue #38: Register a liquidity pool
     pub fn register_pool(e: Env, pool: Address) -> Result<(), ContractError> {
         storage::get_admin(&e).require_auth();
 
@@ -54,7 +54,6 @@ impl StellarRoute {
         }
 
         e.storage().persistent().set(&key, &true);
-        // Extend persistent storage TTL (approx 30 days)
         e.storage().persistent().extend_ttl(&key, 17280, 17280 * 30);
 
         let new_count = storage::get_pool_count(&e) + 1;
@@ -65,7 +64,6 @@ impl StellarRoute {
         Ok(())
     }
 
-    /// Issue #38: Emergency Pause
     pub fn pause(e: Env) -> Result<(), ContractError> {
         storage::get_admin(&e).require_auth();
         e.storage().instance().set(&StorageKey::Paused, &true);
@@ -80,15 +78,21 @@ impl StellarRoute {
         Ok(())
     }
 
+    pub fn require_not_paused(e: &Env) -> Result<(), ContractError> {
+        let paused: bool = e
+            .storage()
+            .instance()
+            .get(&StorageKey::Paused)
+            .unwrap_or(false);
+        if paused {
+            return Err(ContractError::Paused);
+        }
+        Ok(())
+    }
+
     pub fn get_quote(e: Env, amount_in: i128, route: Route) -> Result<QuoteResult, ContractError> {
-        if amount_in <= 0 {
-            return Err(ContractError::InvalidAmount);
-        }
-        if route.hops.is_empty() {
-            return Err(ContractError::EmptyRoute);
-        }
-        if route.hops.len() > 4 {
-            return Err(ContractError::TooManyHops);
+        if amount_in <= 0 || route.hops.is_empty() || route.hops.len() > 4 {
+            return Err(ContractError::InvalidRoute);
         }
 
         let mut current_amount = amount_in;
@@ -96,12 +100,10 @@ impl StellarRoute {
 
         for i in 0..route.hops.len() {
             let hop = route.hops.get(i).unwrap();
-
             if !is_supported_pool(&e, hop.pool.clone()) {
                 return Err(ContractError::PoolNotSupported);
             }
 
-            // Fixed: Added soroban_sdk::Error as the second generic argument
             let call_result = e.try_invoke_contract::<i128, soroban_sdk::Error>(
                 &hop.pool,
                 &symbol_short!("swap_out"),
@@ -113,13 +115,11 @@ impl StellarRoute {
                 ],
             );
 
-            let output_from_hop = match call_result {
+            current_amount = match call_result {
                 Ok(Ok(val)) => val,
                 _ => return Err(ContractError::PoolCallFailed),
             };
-
             total_impact_bps += 5;
-            current_amount = output_from_hop;
         }
 
         let fee_rate = get_fee_rate(&e);
@@ -132,6 +132,97 @@ impl StellarRoute {
             fee_amount,
             route: route.clone(),
             valid_until: (e.ledger().sequence() + 120) as u64,
+        })
+    }
+
+    pub fn execute_swap(
+        e: Env,
+        sender: Address,
+        params: SwapParams,
+    ) -> Result<SwapResult, ContractError> {
+        sender.require_auth();
+        // Fixed the self call by using StellarRoute::
+        StellarRoute::require_not_paused(&e)?;
+
+        if e.ledger().sequence() as u64 > params.deadline {
+            return Err(ContractError::DeadlineExceeded);
+        }
+
+        if params.route.hops.is_empty() || params.route.hops.len() > 4 {
+            return Err(ContractError::InvalidRoute);
+        }
+
+        // 1. Transfer input tokens from sender to first pool
+        let first_hop = params.route.hops.get(0).unwrap();
+        transfer_asset(
+            &e,
+            &first_hop.source,
+            &sender,
+            &first_hop.pool,
+            params.amount_in,
+        );
+
+        let mut current_input_amount = params.amount_in;
+
+        // 2. Multi-Hop Execution
+        for i in 0..params.route.hops.len() {
+            let hop = params.route.hops.get(i).unwrap();
+
+            if !is_supported_pool(&e, hop.pool.clone()) {
+                return Err(ContractError::PoolNotSupported);
+            }
+
+            let call_result = e.try_invoke_contract::<i128, soroban_sdk::Error>(
+                &hop.pool,
+                &symbol_short!("swap_out"),
+                vec![
+                    &e,
+                    hop.source.into_val(&e),
+                    hop.destination.into_val(&e),
+                    current_input_amount.into_val(&e),
+                ],
+            );
+
+            current_input_amount = match call_result {
+                Ok(Ok(val)) => val,
+                _ => return Err(ContractError::PoolCallFailed),
+            };
+        }
+
+        // 3. Fees and Slippage
+        let fee_rate = get_fee_rate(&e);
+        let fee_amount = (current_input_amount * fee_rate as i128) / 10000;
+        let final_output = current_input_amount - fee_amount;
+
+        if final_output < params.min_amount_out {
+            return Err(ContractError::SlippageExceeded);
+        }
+
+        // 4. Send output to recipient and fee to treasury
+        let last_hop = params.route.hops.get(params.route.hops.len() - 1).unwrap();
+        transfer_asset(
+            &e,
+            &last_hop.destination,
+            &e.current_contract_address(),
+            &params.recipient,
+            final_output,
+        );
+        transfer_asset(
+            &e,
+            &last_hop.destination,
+            &e.current_contract_address(),
+            &get_fee_to(&e),
+            fee_amount,
+        );
+
+        increment_nonce(&e, sender.clone());
+        events::swap_executed(&e, sender, params.amount_in, final_output, fee_amount);
+
+        Ok(SwapResult {
+            amount_in: params.amount_in,
+            amount_out: final_output,
+            route: params.route,
+            executed_at: e.ledger().sequence() as u64,
         })
     }
 }
