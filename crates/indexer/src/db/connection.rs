@@ -1,6 +1,8 @@
 //! Database connection management
 
+use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
+use std::time::Duration;
 use tracing::{error, info};
 
 use crate::config::IndexerConfig as Config;
@@ -12,19 +14,34 @@ pub struct Database {
 }
 
 impl Database {
-    /// Create a new database connection pool
+    /// Create a new database connection pool with configurable pool options.
+    ///
+    /// Pool settings are read from [`Config`] and can be tuned via environment
+    /// variables (`DB_MAX_CONNECTIONS`, `DB_MIN_CONNECTIONS`,
+    /// `DB_CONNECTION_TIMEOUT`, `DB_IDLE_TIMEOUT`, `DB_MAX_LIFETIME`).
     pub async fn new(config: &Config) -> Result<Self> {
-        info!("Connecting to database: {}", config.database_url);
+        info!(
+            "Connecting to database (pool: min={}, max={}, timeout={}s)",
+            config.min_connections, config.max_connections, config.connection_timeout_secs,
+        );
 
-        let pool = PgPool::connect(&config.database_url).await.map_err(|e| {
-            error!("Failed to connect to database: {}", e);
-            IndexerError::DatabaseConnection(format!(
-                "Failed to connect to {}: {}",
-                config.database_url, e
-            ))
-        })?;
+        let pool = PgPoolOptions::new()
+            .max_connections(config.max_connections)
+            .min_connections(config.min_connections)
+            .acquire_timeout(Duration::from_secs(config.connection_timeout_secs))
+            .idle_timeout(Duration::from_secs(config.idle_timeout_secs))
+            .max_lifetime(Duration::from_secs(config.max_lifetime_secs))
+            .connect(&config.database_url)
+            .await
+            .map_err(|e| {
+                error!("Failed to connect to database: {}", e);
+                IndexerError::DatabaseConnection(format!("Failed to connect to database: {}", e))
+            })?;
 
-        info!("Database connection established");
+        info!(
+            "Database connection pool established (max_connections={})",
+            config.max_connections
+        );
         Ok(Self { pool })
     }
 
