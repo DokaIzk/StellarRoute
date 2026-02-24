@@ -41,6 +41,9 @@ pub struct SwapParams {
     pub min_amount_out: i128,
     pub recipient: Address,
     pub deadline: u64,
+    pub not_before: u64,
+    pub max_price_impact_bps: u32,
+    pub max_execution_spread_bps: u32,
 }
 
 #[contracttype]
@@ -76,3 +79,4 @@ pub trait LiquidityPoolInterface {
     fn get_rsrvs(e: Env) -> (i128, i128);
     fn swap_out(e: Env, in_asset: Asset, out_asset: Asset, amount_in: i128) -> i128;
 }
+

@@ -11,7 +11,7 @@
 
 use soroban_sdk::{
     testutils::{Address as _, Events, Ledger},
-    Address, Env, Vec,
+    Address, Bytes, BytesN, Env, Vec,
 };
 
 use super::{
@@ -159,6 +159,9 @@ fn swap_params_for(
         min_amount_out: min_out,
         recipient: Address::generate(env),
         deadline,
+        not_before: 0,
+        max_price_impact_bps: 0,
+        max_execution_spread_bps: 0,
     }
 }
 
@@ -1088,7 +1091,7 @@ fn test_version_returns_constant() {
     let env = setup_env();
     let id = env.register_contract(None, StellarRoute);
     let client = StellarRouteClient::new(&env, &id);
-    assert_eq!(client.version(), 1);
+    assert_eq!(client.version(), 2);
 }
 
 #[test]

@@ -1,5 +1,5 @@
 use crate::types::Route;
-use soroban_sdk::{symbol_short, Address, Env, Symbol};
+use soroban_sdk::{symbol_short, Address, BytesN, Env, Symbol};
 
 pub fn initialized(e: &Env, admin: Address, fee_rate: u32) {
     let topics = (Symbol::new(e, "StellarRoute"), symbol_short!("init"));
