@@ -62,6 +62,23 @@ fn dispatch_action(e: &Env, action: ProposalAction) -> Result<(), ContractError>
         ProposalAction::SetFeeTo(addr) => {
             e.storage().instance().set(&StorageKey::FeeTo, &addr);
         }
+        ProposalAction::SetFeeConfig(config) => {
+            // Validate max 5 recipients
+            if config.recipients.len() > 5 {
+                return Err(ContractError::InvalidFeeConfig);
+            }
+
+            // Validate shares sum to exactly 10000 bps (100%)
+            let mut total_bps: u32 = 0;
+            for recipient in config.recipients.iter() {
+                total_bps += recipient.share_bps;
+            }
+            if total_bps != 10000 {
+                return Err(ContractError::InvalidFeeConfig);
+            }
+
+            storage::set_fee_config(e, &config);
+        }
         ProposalAction::RegisterPool(pool, _pool_type) => {
             let key = StorageKey::SupportedPool(pool.clone());
             e.storage().persistent().set(&key, &true);

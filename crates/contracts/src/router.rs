@@ -7,11 +7,27 @@ use crate::storage::{
 use crate::types::{
     CommitmentData, ContractVersion, GovernanceConfig, MevConfig, Proposal, ProposalAction,
     QuoteResult, Route, SwapParams, SwapResult, TokenCategory, TokenInfo,
+    FeeConfig, DistributionRecord, // <--- Added new fee types
 };
 use crate::{governance, tokens, upgrade};
 use soroban_sdk::{
-    contract, contractimpl, symbol_short, vec, Address, Bytes, BytesN, Env, IntoVal, Symbol, Vec,
+    contract, contractimpl, contracttype, symbol_short, vec, Address, Bytes, BytesN, Env, IntoVal, Symbol, Vec,
 };
+
+
+const MAX_HOPS: u32 = 4;
+const BASE_CPU_PER_HOP: u64 = 5_000_000;
+const CCI_OVERHEAD: u64 = 1_000_000;
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ResourceEstimate {
+    pub estimated_cpu: u64,
+    pub storage_reads: u32,
+    pub storage_writes: u32,
+    pub events: u32,
+    pub will_succeed: bool,
+}
 
 #[contract]
 pub struct StellarRoute;
@@ -96,6 +112,98 @@ impl StellarRoute {
         events::admin_changed(&e, admin, new_admin);
         extend_instance_ttl(&e);
         Ok(())
+    }
+
+    // ── Single-admin Fee Configuration ────────────────────────────────────
+    
+    pub fn set_fee_distribution_config(e: Env, config: FeeConfig) -> Result<(), ContractError> {
+        if storage::is_multisig(&e) {
+            return Err(ContractError::UseGovernance); 
+        }
+        storage::get_admin(&e).require_auth();
+
+        let mut total_bps: u32 = 0;
+        for recipient in config.recipients.iter() {
+            total_bps += recipient.share_bps;
+        }
+        if total_bps != 10000 || config.recipients.len() > 5 {
+            return Err(ContractError::InvalidFeeConfig);
+        }
+
+        storage::set_fee_config(&e, &config);
+        extend_instance_ttl(&e);
+        Ok(())
+    }
+
+    // ── Fee Distribution Execution ────────────────────────────────────────
+
+    pub fn distribute_fees(e: Env, asset: crate::types::Asset) -> Result<(), ContractError> {
+        let config = storage::get_fee_config(&e).ok_or(ContractError::NotInitialized)?;
+        Self::distribute_fees_internal(&e, &asset, &config);
+        Ok(())
+    }
+
+    fn distribute_fees_internal(e: &Env, asset: &crate::types::Asset, config: &FeeConfig) {
+        let total_balance = storage::get_fee_balance(e, asset);
+        if total_balance == 0 {
+            return;
+        }
+
+        // Reset balance immediately
+        storage::set_fee_balance(e, asset, 0);
+
+        let mut remaining_dust = total_balance;
+        let mut treasury_idx = 0;
+        let mut found_treasury = false;
+
+        // Locate treasury for dust allocation
+        for (i, rec) in config.recipients.iter().enumerate() {
+            if rec.label == symbol_short!("treasury") {
+                treasury_idx = i;
+                found_treasury = true;
+                break;
+            }
+        }
+
+        let num_recipients = config.recipients.len() as usize;
+
+        for (i, rec) in config.recipients.iter().enumerate() {
+            let mut amount = (total_balance * rec.share_bps as i128) / 10000;
+
+            // Add rounding dust to treasury or last recipient
+            if (found_treasury && i == treasury_idx) || (!found_treasury && i == num_recipients - 1) {
+                amount = remaining_dust; 
+            }
+
+            if amount > 0 {
+                remaining_dust -= amount;
+                
+                if rec.label == symbol_short!("burn") {
+                    match asset {
+                        crate::types::Asset::Soroban(ref token_addr) => {
+                            let client = soroban_sdk::token::Client::new(e, token_addr);
+                            client.burn(&e.current_contract_address(), &amount);
+                            events::fees_burned(e, asset.clone(), amount);
+                        }
+                        crate::types::Asset::Issued(ref issuer, _) => {
+                            storage::transfer_asset(e, asset, &e.current_contract_address(), issuer, amount);
+                            events::fees_burned(e, asset.clone(), amount);
+                        }
+                        crate::types::Asset::Native => { /* XLM has no standard burn, skip */ }
+                    }
+                    storage::add_total_burned(e, asset, amount);
+                } else {
+                    storage::transfer_asset(e, asset, &e.current_contract_address(), &rec.address, amount);
+                }
+            }
+        }
+
+        storage::push_distribution_history(e, asset, DistributionRecord {
+            timestamp: e.ledger().sequence() as u64,
+            total_distributed: total_balance,
+        });
+
+        events::fees_distributed(e, asset.clone(), total_balance);
     }
 
     pub fn register_pool(e: Env, pool: Address) -> Result<(), ContractError> {
@@ -290,6 +398,28 @@ impl StellarRoute {
 
     pub fn get_fee_to_address(e: Env) -> Result<Address, ContractError> {
         storage::get_fee_to_optional(&e).ok_or(ContractError::NotInitialized)
+    }
+
+    // ── Fee Distribution Getters ─────────────────────────────────────────
+
+    pub fn get_fee_distribution_config(e: Env) -> Option<FeeConfig> {
+        storage::get_fee_config(&e)
+    }
+
+    pub fn get_fee_balance(e: Env, asset: crate::types::Asset) -> i128 {
+        storage::get_fee_balance(&e, &asset)
+    }
+
+    pub fn get_total_fees_collected(e: Env, asset: crate::types::Asset) -> i128 {
+        storage::get_total_fees_collected(&e, &asset)
+    }
+
+    pub fn get_total_fees_burned(e: Env, asset: crate::types::Asset) -> i128 {
+        storage::get_total_burned(&e, &asset)
+    }
+
+    pub fn get_distribution_history(e: Env, asset: crate::types::Asset) -> Vec<DistributionRecord> {
+        storage::get_distribution_history(&e, &asset)
     }
 
     pub fn is_paused(e: Env) -> bool {
@@ -636,7 +766,7 @@ impl StellarRoute {
         for i in 0..params.route.hops.len() {
             let hop = params.route.hops.get(i).unwrap();
 
-            if !is_supported_pool(e, hop.pool.clone()) {
+            if !storage::is_supported_pool(e, hop.pool.clone()) {
                 return Err(ContractError::PoolNotSupported);
             }
 
@@ -734,13 +864,21 @@ impl StellarRoute {
             final_output,
         );
 
-        transfer_asset(
-            e,
-            &last_hop.destination,
-            &e.current_contract_address(),
-            &get_fee_to(e),
-            fee_amount,
-        );
+        // ── Collect and Handle Distribution ──────────────────────────────
+        if fee_amount > 0 {
+            storage::add_fee_balance(e, &last_hop.destination, fee_amount);
+            events::fee_collected(e, last_hop.destination.clone(), fee_amount);
+
+            if let Some(config) = storage::get_fee_config(e) {
+                if config.auto_distribute {
+                    let current_balance = storage::get_fee_balance(e, &last_hop.destination);
+                    if current_balance >= config.min_distribution {
+                        Self::distribute_fees_internal(e, &last_hop.destination, &config);
+                    }
+                }
+            }
+        }
+        // ──────────────────────────────────────────────────────────────────────
 
         increment_nonce(e, sender.clone());
 

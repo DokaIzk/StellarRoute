@@ -69,4 +69,7 @@ pub enum ContractError {
     InvalidReveal = 93,
     /// Sender has exceeded the per-window swap rate limit.
     RateLimitExceeded = 94,
+    // ── Fee Distribution ─────────────────────────────────────────────────
+    /// Fee configuration is invalid (e.g., shares don't sum to 10000 bps or too many recipients).
+    InvalidFeeConfig = 100,
 }

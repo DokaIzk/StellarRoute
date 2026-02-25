@@ -1,8 +1,8 @@
 use crate::types::{
-    Asset, CommitmentData, ContractVersion, GovernanceConfig, MevConfig, PendingUpgrade, Proposal,
-    TokenCategory, TokenInfo,
+    Asset, CommitmentData, ContractVersion, FeeConfig, GovernanceConfig, MevConfig, PendingUpgrade, Proposal,
+    TokenCategory, TokenInfo, DistributionRecord,
 };
-use soroban_sdk::{contracttype, Address, BytesN, Env};
+use soroban_sdk::{contracttype, Address, BytesN, Env, Vec};
 
 #[contracttype]
 pub enum StorageKey {
@@ -45,6 +45,12 @@ pub enum StorageKey {
     AccountSwapWindowStart(Address),
     Whitelisted(Address),
     LatestKnownPrice(Address, Address),
+    // ── Fee Distribution Keys ────────────────────────────────────────────────
+    FeeConfig,
+    FeeBalance(Asset),
+    TotalFeesCollected(Asset),
+    TotalFeesBurned(Asset),
+    DistributionHistory(Asset),
 }
 
 #[contracttype]
@@ -285,11 +291,6 @@ pub fn set_token_count(e: &Env, count: u32) {
     e.storage().instance().set(&StorageKey::TokenCount, &count);
 }
 
-/// Return all tokens whose category matches `filter`.
-/// Iterates the provided list of all known assets (callers build this
-/// via repeated get_token_info calls or by storing a separate index —
-/// here we expose the building block; the tokens module keeps a by-category
-/// index).
 pub fn get_tokens_by_category_key(e: &Env, asset: &Asset) -> Option<TokenCategory> {
     get_token_info(e, asset).map(|i| i.category)
 }
@@ -378,4 +379,70 @@ pub fn get_latest_known_price(e: &Env, token_a: &Address, token_b: &Address) -> 
 pub fn set_latest_known_price(e: &Env, token_a: &Address, token_b: &Address, price: i128) {
     let key = StorageKey::LatestKnownPrice(token_a.clone(), token_b.clone());
     e.storage().instance().set(&key, &price);
+}
+
+// ─── Fee Distribution Storage Helpers ────────────────────────────────────────
+
+pub fn get_fee_config(e: &Env) -> Option<FeeConfig> {
+    e.storage().instance().get(&StorageKey::FeeConfig)
+}
+
+pub fn set_fee_config(e: &Env, config: &FeeConfig) {
+    e.storage().instance().set(&StorageKey::FeeConfig, config);
+}
+
+pub fn get_fee_balance(e: &Env, asset: &Asset) -> i128 {
+    e.storage().persistent().get(&StorageKey::FeeBalance(asset.clone())).unwrap_or(0)
+}
+
+pub fn set_fee_balance(e: &Env, asset: &Asset, amount: i128) {
+    let key = StorageKey::FeeBalance(asset.clone());
+    e.storage().persistent().set(&key, &amount);
+    e.storage().persistent().extend_ttl(&key, 17280, 17280 * 30);
+}
+
+pub fn add_fee_balance(e: &Env, asset: &Asset, amount: i128) {
+    let new_balance = get_fee_balance(e, asset) + amount;
+    set_fee_balance(e, asset, new_balance);
+
+    let total_key = StorageKey::TotalFeesCollected(asset.clone());
+    let current_total: i128 = e.storage().persistent().get(&total_key).unwrap_or(0);
+    e.storage().persistent().set(&total_key, &(current_total + amount));
+    e.storage().persistent().extend_ttl(&total_key, 17280, 17280 * 365);
+}
+
+pub fn get_total_fees_collected(e: &Env, asset: &Asset) -> i128 {
+    e.storage().persistent().get(&StorageKey::TotalFeesCollected(asset.clone())).unwrap_or(0)
+}
+
+pub fn add_total_burned(e: &Env, asset: &Asset, amount: i128) {
+    let key = StorageKey::TotalFeesBurned(asset.clone());
+    let current_total: i128 = e.storage().persistent().get(&key).unwrap_or(0);
+    e.storage().persistent().set(&key, &(current_total + amount));
+    e.storage().persistent().extend_ttl(&key, 17280, 17280 * 365);
+}
+
+pub fn get_total_burned(e: &Env, asset: &Asset) -> i128 {
+    e.storage().persistent().get(&StorageKey::TotalFeesBurned(asset.clone())).unwrap_or(0)
+}
+
+pub fn push_distribution_history(e: &Env, asset: &Asset, record: DistributionRecord) {
+    let key = StorageKey::DistributionHistory(asset.clone());
+    let mut history: Vec<DistributionRecord> = 
+        e.storage().persistent().get(&key).unwrap_or_else(|| Vec::new(e));
+    
+    history.push_front(record);
+    
+    // Keep only the last 10 records to save state size
+    if history.len() > 10 {
+        history.pop_back(); 
+    }
+    
+    e.storage().persistent().set(&key, &history);
+    e.storage().persistent().extend_ttl(&key, 17280, 17280 * 30);
+}
+
+pub fn get_distribution_history(e: &Env, asset: &Asset) -> Vec<DistributionRecord> {
+    e.storage().persistent().get(&StorageKey::DistributionHistory(asset.clone()))
+        .unwrap_or_else(|| Vec::new(e))
 }

@@ -1,4 +1,4 @@
-use crate::types::{ProposalAction, Route};
+use crate::types::{ProposalAction, Route, Asset};
 use soroban_sdk::{symbol_short, Address, BytesN, Env, Symbol};
 
 pub fn initialized(e: &Env, admin: Address, fee_rate: u32) {
@@ -128,6 +128,7 @@ pub fn token_updated(e: &Env, asset: crate::types::Asset, updated_by: Address) {
     let topics = (Symbol::new(e, "StellarRoute"), symbol_short!("tok_upd"));
     e.events().publish(topics, (asset, updated_by));
 }
+
 // --- MEV Protection Events ---
 
 pub fn high_impact_swap(e: &Env, sender: Address, impact_bps: u32, amount_in: i128) {
@@ -170,4 +171,21 @@ pub fn commitment_revealed(e: &Env, sender: Address, commitment_hash: BytesN<32>
         sender,
     );
     e.events().publish(topics, commitment_hash);
+}
+
+// ─── Fee Distribution Events ─────────────────────────────────────────────────
+
+pub fn fee_collected(e: &Env, asset: Asset, amount: i128) {
+    let topics = (Symbol::new(e, "StellarRoute"), symbol_short!("fee_col"));
+    e.events().publish(topics, (asset, amount, e.ledger().sequence()));
+}
+
+pub fn fees_distributed(e: &Env, asset: Asset, total_distributed: i128) {
+    let topics = (Symbol::new(e, "StellarRoute"), symbol_short!("fee_dist"));
+    e.events().publish(topics, (asset, total_distributed, e.ledger().sequence()));
+}
+
+pub fn fees_burned(e: &Env, asset: Asset, amount: i128) {
+    let topics = (Symbol::new(e, "StellarRoute"), symbol_short!("fee_brn"));
+    e.events().publish(topics, (asset, amount, e.ledger().sequence()));
 }

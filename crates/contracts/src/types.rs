@@ -87,6 +87,31 @@ pub struct MevConfig {
     pub price_freshness_threshold_bps: u32,
 }
 
+// --- Fee Distribution Types ---
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct FeeRecipient {
+    pub address: Address,
+    pub share_bps: u32,        // Share in basis points (5000 = 50%)
+    pub label: Symbol,         // "treasury", "stakers", "burn", etc.
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct FeeConfig {
+    pub recipients: Vec<FeeRecipient>,
+    pub min_distribution: i128,
+    pub auto_distribute: bool,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, PartialEq)]
+pub struct DistributionRecord {
+    pub timestamp: u64,
+    pub total_distributed: i128,
+}
+
 // Interface for AMM pools (SEP-like standard)
 pub trait LiquidityPoolInterface {
     fn get_rsrvs(e: Env) -> (i128, i128);
@@ -146,6 +171,7 @@ pub struct GovernanceConfig {
 pub enum ProposalAction {
     SetFeeRate(u32),
     SetFeeTo(Address),
+    SetFeeConfig(FeeConfig), // NEW: Supports multi-sig fee distribution updates
     RegisterPool(Address, PoolType),
     DeregisterPool(Address),
     Pause,
