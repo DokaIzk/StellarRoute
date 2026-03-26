@@ -110,7 +110,7 @@ export interface PriceQuote {
   /** Time-to-live in seconds for client-side staleness detection */
   ttl_seconds?: number;
   /** Estimated price impact percentage */
-  priceImpact?: string;
+  price_impact?: string;
 }
 
 /**

@@ -31,7 +31,7 @@ interface BatchSwapItem {
   toAsset: string;
   toAmount: string;
   exchangeRate: string;
-  priceImpact: string;
+  price_impact: string;
   routePath: PathStep[];
 }
 import {
@@ -148,7 +148,7 @@ export function DemoSwap() {
       toAsset: selectedPair.counter,
       toAmount: quote.total,
       exchangeRate: quote.price,
-      priceImpact: priceImpactDisplay,
+      price_impact: priceImpactDisplay,
       routePath: quote.path,
     };
 
@@ -224,7 +224,7 @@ export function DemoSwap() {
     quote && parseResult.status === "ok" ? quote.total : "—";
 
   const priceImpactDisplay =
-    quote?.priceImpact != null ? `${quote.priceImpact}%` : "—";
+    quote?.price_impact != null ? `${quote.price_impact}%` : "—";
 
   const slippageTooLow = slippage !== null && slippage < 0.1;
   const slippageTooHigh = slippage !== null && slippage > 1;
