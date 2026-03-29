@@ -4,6 +4,7 @@ use crate::error::{Result, RoutingError};
 use crate::impact::{AmmQuoteCalculator, OrderbookImpactCalculator};
 use crate::pathfinder::{LiquidityEdge, Pathfinder, PathfinderConfig, SwapPath};
 use crate::policy::RoutingPolicy;
+use crate::risk::{RiskLimitConfig, RiskValidator, RouteExclusion};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Instant;
@@ -140,18 +141,21 @@ pub struct OptimizerDiagnostics {
     pub policy: OptimizerPolicy,
     /// Total computation time
     pub total_compute_time_ms: u64,
+    /// Routes excluded due to risk limits
+    #[serde(default)]
+    pub excluded_routes: Vec<RouteExclusion>,
 }
 
 /// Hybrid route optimizer with configurable policies
 pub struct HybridOptimizer {
     pathfinder: Pathfinder,
-    /// Wired in when hop simulation uses shared calculators (currently placeholder paths use inline fees).
     #[allow(dead_code)]
     amm_calculator: AmmQuoteCalculator,
     #[allow(dead_code)]
     orderbook_calculator: OrderbookImpactCalculator,
     policies: HashMap<String, OptimizerPolicy>,
     active_policy: String,
+    risk_validator: Option<RiskValidator>,
 }
 
 impl HybridOptimizer {
@@ -169,7 +173,25 @@ impl HybridOptimizer {
             orderbook_calculator: OrderbookImpactCalculator,
             policies,
             active_policy: "production".to_string(),
+            risk_validator: None,
         }
+    }
+
+    /// Create optimizer with risk limits
+    pub fn with_risk_limits(config: PathfinderConfig, risk_config: RiskLimitConfig) -> Self {
+        let mut optimizer = Self::new(config);
+        optimizer.risk_validator = Some(RiskValidator::new(risk_config));
+        optimizer
+    }
+
+    /// Set risk limit configuration
+    pub fn set_risk_limits(&mut self, config: RiskLimitConfig) {
+        self.risk_validator = Some(RiskValidator::new(config));
+    }
+
+    /// Clear risk limits
+    pub fn clear_risk_limits(&mut self) {
+        self.risk_validator = None;
     }
 
     /// Add custom policy
@@ -196,14 +218,7 @@ impl HybridOptimizer {
         &self.policies[&self.active_policy]
     }
 
-    /// Find optimal routes using hybrid scoring
-    #[instrument(skip(self, edges, routing_policy), fields(
-        route.from = %from,
-        route.to = %to,
-        route.amount_in = amount_in,
-        route.paths_evaluated = tracing::field::Empty,
-        route.compute_time_ms = tracing::field::Empty
-    ))]
+    /// Find optimal routes using hybrid scoring with risk limit enforcement
     pub fn find_optimal_routes(
         &self,
         from: &str,
@@ -214,6 +229,7 @@ impl HybridOptimizer {
     ) -> Result<OptimizerDiagnostics> {
         let start_time = Instant::now();
         let policy = self.active_policy();
+        let mut excluded_routes = Vec::new();
 
         let paths = self
             .pathfinder
@@ -227,17 +243,56 @@ impl HybridOptimizer {
         for path in &paths {
             let metrics = self.calculate_route_metrics(path, edges, amount_in)?;
 
-            if metrics.impact_bps <= policy.max_impact_bps
-                && metrics.compute_time_us <= policy.max_compute_time_ms * 1000
+            if metrics.impact_bps > policy.max_impact_bps
+                || metrics.compute_time_us > policy.max_compute_time_ms * 1000
             {
-                scored_paths.push((path.clone(), metrics));
+                continue;
             }
+
+            if let Some(ref validator) = self.risk_validator {
+                let mut path_valid = true;
+                for hop in &path.hops {
+                    let edge_liquidity = edges
+                        .iter()
+                        .find(|e| {
+                            e.from == hop.source_asset
+                                && e.to == hop.destination_asset
+                                && e.venue_ref == hop.venue_ref
+                        })
+                        .map(|e| e.liquidity)
+                        .unwrap_or(0);
+
+                    if let Err(exclusion) = validator.validate_impact(&hop.destination_asset, metrics.impact_bps) {
+                        excluded_routes.push(exclusion);
+                        path_valid = false;
+                        break;
+                    }
+
+                    if let Err(exclusion) = validator.validate_liquidity(&hop.destination_asset, edge_liquidity) {
+                        excluded_routes.push(exclusion);
+                        path_valid = false;
+                        break;
+                    }
+
+                    if let Err(exclusion) = validator.validate_exposure(&hop.destination_asset, amount_in) {
+                        excluded_routes.push(exclusion);
+                        path_valid = false;
+                        break;
+                    }
+                }
+
+                if !path_valid {
+                    continue;
+                }
+            }
+
+            scored_paths.push((path.clone(), metrics));
         }
 
         if scored_paths.is_empty() {
             return Err(RoutingError::NoRoute(
                 "".to_string(),
-                "no routes meet policy constraints".to_string(),
+                "no routes meet policy or risk constraints".to_string(),
             ));
         }
 
@@ -258,7 +313,8 @@ impl HybridOptimizer {
             metrics: selected_metrics,
             alternatives,
             policy: policy.clone(),
-            total_compute_time_ms,
+            total_compute_time_ms: start_time.elapsed().as_millis() as u64,
+            excluded_routes,
         })
     }
 

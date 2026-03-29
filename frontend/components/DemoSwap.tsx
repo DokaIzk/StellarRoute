@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Select,
   SelectContent,
@@ -14,15 +15,17 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-import { TransactionConfirmationModal } from "@/components/shared/TransactionConfirmationModal";
+import { TransactionConfirmationModal, type BatchSwapItem } from "@/components/shared/TransactionConfirmationModal";
 import { usePairs } from "@/hooks/useApi";
 import { useQuoteRefresh } from "@/hooks/useQuoteRefresh";
 import { useTransactionHistory } from "@/hooks/useTransactionHistory";
 import { useWallet } from "@/components/providers/wallet-provider";
 import { useSettings } from "@/components/providers/settings-provider";
+import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 
 import type { PathStep, TradingPair } from "@/types";
 import { TransactionStatus } from "@/types/transaction";
+
 import {
   formatMaxAmountForInput,
   maxDecimalsForSellAsset,
@@ -54,11 +57,13 @@ export function DemoSwap() {
   const { data: pairs, loading: pairsLoading, error: pairsError } = usePairs();
   const { isConnected, stubSpendableBalance } = useWallet();
   const { settings } = useSettings();
+  const { isOnline, isOffline } = useOnlineStatus();
 
   const [selectedKey, setSelectedKey] = useState<string>("");
   const [sellRaw, setSellRaw] = useState<string>("");
   const [slippage, setSlippage] = useState<number | null>(0.5);
 
+  const [batch, setBatch] = useState<BatchSwapItem[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [txStatus, setTxStatus] = useState<TransactionStatus | "review">(
     "review",
@@ -127,9 +132,14 @@ export function DemoSwap() {
     autoRefreshEnabled,
     setAutoRefreshEnabled,
     isStale,
-  } = useQuoteRefresh(quoteBase, quoteCounter, numericForQuote, "sell");
+    isRecovering,
+    retryAttempt,
+  } = useQuoteRefresh(quoteBase, quoteCounter, numericForQuote, "sell", {
+    isOnline,
+  });
 
-  const refreshDisabled = quoteLoading || manualRefreshCoolingDown || !numericForQuote;
+  const refreshDisabled =
+    !isOnline || quoteLoading || manualRefreshCoolingDown || !numericForQuote;
 
   const amountInputInvalid =
     sellRaw.trim() !== "" &&
@@ -145,8 +155,34 @@ export function DemoSwap() {
     setSellRaw(formatMaxAmountForInput(stubSpendableBalance, sellMaxDecimals));
   }, [isConnected, stubSpendableBalance, sellMaxDecimals]);
 
+  const handleAddToBatch = () => {
+    if (parseResult.status !== "ok" || !selectedPair || !quote) {
+      toast.error("Valid quote required to add to batch.");
+      return;
+    }
 
+    const newItem: BatchSwapItem = {
+      fromAsset: selectedPair.base,
+      fromAmount: parseResult.normalized,
+      toAsset: selectedPair.counter,
+      toAmount: quote.total,
+      exchangeRate: quote.price,
+      priceImpact: priceImpactDisplay,
+      routePath: quote.path,
+    };
+
+    setBatch((prev) => [...prev, newItem]);
+    setSellRaw("");
+    toast.success("Added to batch", {
+      description: `${newItem.fromAmount} ${newItem.fromAsset} → ${newItem.toAmount} ${newItem.toAsset}`,
+    });
+  };
   const handleSwapClick = () => {
+    if (!isOnline) {
+      toast.error("You are offline. Reconnect to continue.");
+      return;
+    }
+
     if (!submitValidation.isValid) {
       toast.error(submitValidation.issues[0]?.message ?? "Invalid swap inputs.");
       return;
@@ -159,6 +195,12 @@ export function DemoSwap() {
   };
 
   const handleConfirm = () => {
+    if (!isOnline) {
+      setTxStatus("failed");
+      setErrorMessage("No internet connection. Reconnect and try again.");
+      return;
+    }
+
     setTxStatus("pending");
 
     setTimeout(() => {
@@ -168,68 +210,35 @@ export function DemoSwap() {
         setTxStatus("processing");
 
         setTimeout(() => {
-          const isSuccess = Math.random() > 0.2;
-          const fromAmt =
-            parseResult.status === "ok" ? parseResult.normalized : "0";
-          const toAmt = quote?.total ?? "10.5";
-          const resolvedPriceImpact =
-            quote?.priceImpact != null ? `${quote.priceImpact}%` : "—";
+          const isSuccess = Math.random() > 0.1; // Slightly better success rate for batches
 
           if (isSuccess) {
             const mockHash = "mock_tx_" + Math.random().toString(36).substring(7);
             setTxHash(mockHash);
             setTxStatus("success");
 
-            toast.success("Transaction Successful!", {
-              description: `Swapped ${fromAmt} ${selectedPair?.base ?? ""} for ${toAmt} ${selectedPair?.counter ?? ""}`,
-            });
-
-            addTransaction({
-              id: mockHash,
-              timestamp: Date.now(),
-              fromAsset: selectedPair?.base ?? "XLM",
-              fromAmount: fromAmt,
-              toAsset: selectedPair?.counter ?? "USDC",
-              toAmount: toAmt,
-              exchangeRate: quote?.price ?? "0.105",
-              priceImpact: resolvedPriceImpact,
-              minReceived: toAmt,
-              networkFee: "0.00001",
-              routePath: quote?.path?.length ? quote.path : mockRoute,
-              status: "success",
-              hash: mockHash,
-              walletAddress: MOCK_WALLET,
-            });
+            if (batch.length > 0) {
+              toast.success("Batch Successful!", {
+                description: `Executed ${batch.length} swaps in one atomic transaction.`,
+              });
+              
+              // Clear batch on success
+              setBatch([]);
+            } else {
+              const fromAmt = parseResult.status === "ok" ? parseResult.normalized : "0";
+              const toAmt = quote?.total ?? "0";
+              toast.success("Transaction Successful!", {
+                description: `Swapped ${fromAmt} ${selectedPair?.base ?? ""} for ${toAmt} ${selectedPair?.counter ?? ""}`,
+              });
+            }
           } else {
             setTxStatus("failed");
-            setErrorMessage(
-              "Insufficient balance or network congestion. Please try again.",
-            );
-
-            toast.error("Transaction Failed", {
-              description: "Insufficient balance or network congestion.",
-            });
-
-            addTransaction({
-              id: "failed_" + Date.now(),
-              timestamp: Date.now(),
-              fromAsset: selectedPair?.base ?? "XLM",
-              fromAmount: fromAmt,
-              toAsset: selectedPair?.counter ?? "USDC",
-              toAmount: toAmt,
-              exchangeRate: quote?.price ?? "0.105",
-              priceImpact: resolvedPriceImpact,
-              minReceived: toAmt,
-              networkFee: "0.00001",
-              routePath: quote?.path?.length ? quote.path : mockRoute,
-              status: "failed",
-              errorMessage: "Insufficient balance.",
-              walletAddress: MOCK_WALLET,
-            });
+            setErrorMessage("Atomic batch failed. Please check liquidity or slippage and try again.");
+            toast.error("Transaction Failed");
           }
-        }, 2000);
-      }, 1000);
-    }, 2000);
+        }, 1500);
+      }, 800);
+    }, 1200);
   };
 
   const handleCancel = () => {
@@ -240,7 +249,7 @@ export function DemoSwap() {
     quote && parseResult.status === "ok" ? quote.total : "—";
 
   const priceImpactDisplay =
-    quote?.priceImpact != null ? `${quote.priceImpact}%` : "—";
+    quote?.price_impact != null ? `${quote.price_impact}%` : "—";
 
   const slippageWarning = inputValidation.warnings.slippage;
   const slippageError = inputValidation.fieldErrors.slippage;
@@ -248,6 +257,13 @@ export function DemoSwap() {
   return (
     <Card className="mx-auto mt-8 max-w-lg border-primary/20 bg-background/50 p-6 shadow-lg backdrop-blur-sm">
       <div className="space-y-4">
+        {isOffline && (
+          <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            You&apos;re offline. Quotes are paused and swap submission is disabled
+            until connection is restored.
+          </div>
+        )}
+
         <div>
           <h2 className="mb-1 text-xl font-bold">Swap Tokens</h2>
           <p className="text-sm text-muted-foreground">
@@ -258,7 +274,7 @@ export function DemoSwap() {
         <div className="space-y-2">
           <span className="text-sm font-medium">Pair</span>
           {pairsLoading ? (
-            <p className="text-sm text-muted-foreground">Loading pairs…</p>
+            <Skeleton className="h-10 w-full rounded-md" />
           ) : pairsError ? (
             <p className="text-sm text-destructive">
               Could not load pairs. Start the API to select a market.
@@ -340,10 +356,9 @@ export function DemoSwap() {
             <span className="text-sm font-medium">Estimated receive</span>
             <div className="mt-1 text-2xl font-bold text-success">
               {quoteLoading && numericForQuote !== undefined ? (
-                <span className="flex items-center gap-2">
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                  ~ …
-                </span>
+                <div className="flex items-center gap-2 h-8">
+                  <Skeleton className="h-7 w-32" />
+                </div>
               ) : (
                 <>
                   {receivePreview}
@@ -352,9 +367,26 @@ export function DemoSwap() {
               )}
             </div>
             {quoteError && numericForQuote !== undefined && (
-              <p className="mt-1 text-xs text-destructive">
-                Quote failed: {quoteError.message}
-              </p>
+              <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-destructive">
+                <p>Quote failed: {quoteError.message}</p>
+                {isRecovering && (
+                  <p className="text-muted-foreground">
+                    Network looks unstable. Retrying automatically (attempt {retryAttempt}).
+                  </p>
+                )}
+                {isOnline && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => refresh()}
+                    disabled={quoteLoading || manualRefreshCoolingDown}
+                    className="h-6 px-2 text-xs"
+                  >
+                    Retry now
+                  </Button>
+                )}
+              </div>
             )}
           </div>
 
@@ -460,7 +492,7 @@ export function DemoSwap() {
               ) : (
                 <RefreshCw className="h-4 w-4" aria-hidden />
               )}
-              Refresh quote
+              {quoteError ? "Retry quote" : "Refresh quote"}
             </Button>
             <label className="flex cursor-pointer items-center gap-2 text-sm text-muted-foreground">
               <input
@@ -479,6 +511,7 @@ export function DemoSwap() {
           className="h-12 w-full text-lg"
           onClick={handleSwapClick}
           disabled={
+            !isOnline ||
             !submitValidation.isValid
           }
         >
@@ -500,8 +533,15 @@ export function DemoSwap() {
         slippageTolerancePct={settings.slippageTolerance}
         networkFee="0.00001"
         routePath={quote?.path?.length ? quote.path : mockRoute}
+        swaps={batch}
         onConfirm={handleConfirm}
         onCancel={handleCancel}
+        confirmDisabled={isOffline}
+        confirmDisabledReason={
+          isOffline
+            ? "Reconnect to the internet before confirming this swap."
+            : undefined
+        }
         status={txStatus}
         errorMessage={errorMessage}
         txHash={txHash}
